@@ -10,6 +10,7 @@ import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
 import { PdvSection } from '@/components/PdvSection';
 import { RetiradasSection } from '@/components/RetiradasSection';
+import { SiteFooter } from '@/components/SiteFooter';
 import { TermosSection } from '@/components/TermosSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
@@ -256,7 +257,7 @@ export default function EventoScreen() {
   const validatedBar = detail.validated > 0 ? Math.min(100, Math.max(validatedPct, 2)) : 0;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerSide}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
@@ -569,6 +570,7 @@ export default function EventoScreen() {
             }}
           />
         ) : null}
+        <SiteFooter />
       </ScrollView>
       {toast ? (
         <View pointerEvents="none" style={styles.toast}>
@@ -632,8 +634,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   content: {
+    flexGrow: 1,
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingBottom: 0,
   },
   scroll: {
     flex: 1,

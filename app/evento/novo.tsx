@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Loader } from '@/components/Loader';
+import { SiteFooter } from '@/components/SiteFooter';
 import { TermosSection } from '@/components/TermosSection';
 import { colors } from '@/constants/theme';
 import {
@@ -577,6 +578,7 @@ export default function NovoEventoScreen() {
               </Pressable>
             </View>
           ) : null}
+          <SiteFooter />
         </ScrollView>
 
         <View style={styles.footer}>
@@ -658,7 +660,7 @@ const styles = StyleSheet.create({
   stepLabelOn: { color: colors.blue },
   stepLine: { flex: 0.35, height: 1, backgroundColor: 'rgba(255,255,255,0.10)', marginHorizontal: 4 },
   stepLineOn: { backgroundColor: 'rgba(0,123,255,0.5)' },
-  body: { paddingHorizontal: 16, paddingBottom: 24, gap: 10 },
+  body: { flexGrow: 1, paddingHorizontal: 16, paddingBottom: 0, gap: 10 },
   gap: { gap: 10 },
   field: { gap: 6 },
   label: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '600' },

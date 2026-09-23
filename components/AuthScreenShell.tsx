@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SiteFooter } from '@/components/SiteFooter';
 import { colors } from '@/constants/theme';
 
 type AuthKeyboardValue = {
@@ -114,7 +115,8 @@ export function AuthScreenShell({
                 keyboardOpen && { paddingBottom: Math.max(24, keyboardHeight.current * 0.12) },
               ]}
             >
-              {children}
+              <View style={styles.body}>{children}</View>
+              <SiteFooter />
             </ScrollView>
           </SafeAreaView>
         </KeyboardAvoidingView>
@@ -130,8 +132,12 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 24,
+    paddingTop: 24,
+    paddingBottom: 0,
+  },
+  body: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
 });

@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NeonCard } from '@/components/NeonCard';
 import { Loader } from '@/components/Loader';
+import { SiteFooter } from '@/components/SiteFooter';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
@@ -70,7 +71,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Wordmark height={28} />
         <Pressable
@@ -148,6 +149,7 @@ export default function HomeScreen() {
             </View>
           </Pressable>
         ))}
+        <SiteFooter />
       </ScrollView>
 
       <Modal
@@ -253,7 +255,7 @@ const styles = StyleSheet.create({
   list: {
     flexGrow: 1,
     paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingBottom: 0,
     gap: 10,
   },
   error: {

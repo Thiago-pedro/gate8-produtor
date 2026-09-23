@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Loader } from '@/components/Loader';
+import { SiteFooter } from '@/components/SiteFooter';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
@@ -194,7 +195,7 @@ export default function CadastroProdutorScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Wordmark height={28} />
       </View>
@@ -411,6 +412,7 @@ export default function CadastroProdutorScreen() {
             </Pressable>
           )}
         </View>
+        <SiteFooter />
       </ScrollView>
     </SafeAreaView>
   );
@@ -435,8 +437,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   content: {
+    flexGrow: 1,
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingBottom: 0,
   },
   title: {
     color: colors.text,
