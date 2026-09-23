@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Gate8 Produtor",
+    "slug": "gate8-produtor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "gate8produtor",
+    "userInterfaceStyle": "dark",
+    "androidNavigationBar": {
+      "backgroundColor": "#0b1730",
+      "barStyle": "light-content"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "club.gate8.produtor"
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "club.gate8.produtor",
+      "adaptiveIcon": {
+        "backgroundColor": "#050d1f",
+        "foregroundImage": "./assets/images/adaptive-icon.png"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-8.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#050d1f",
+          "imageWidth": 180
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
