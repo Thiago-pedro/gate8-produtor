@@ -11,28 +11,34 @@ import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
 
-function LoginForm() {
+function SignupForm() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signUp } = useAuth();
   const { keyboardOpen } = useAuthKeyboard();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   async function submit() {
-    if (!email.trim() || !password) {
-      setError('Informe e-mail e senha da conta Gate8.');
+    if (!name.trim() || !email.trim() || password.length < 6) {
+      setError('Informe nome, e-mail e uma senha com pelo menos 6 caracteres.');
       return;
     }
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
       Keyboard.dismiss();
-      await signIn(email, password);
+      const result = await signUp(email, password, name);
+      if (result.needsConfirmation) {
+        setInfo('Conta criada. Confirme o e-mail e volte para entrar.');
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Não foi possível entrar.');
+      setError(caught instanceof Error ? caught.message : 'Não foi possível criar a conta.');
     } finally {
       setBusy(false);
     }
@@ -45,9 +51,19 @@ function LoginForm() {
         <Text style={styles.brand}>PRODUTOR</Text>
       </View>
       <NeonCard>
-        <Text style={styles.title}>Entrar</Text>
-        <Text style={styles.lead}>Entre com seu login de produtor para gerenciar seus eventos</Text>
+        <Text style={styles.title}>Criar conta</Text>
+        <Text style={styles.lead}>Cadastre-se para publicar eventos e gerar o token da portaria.</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {info ? <Text style={styles.info}>{info}</Text> : null}
+        <Text style={styles.label}>NOME</Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          placeholder="Seu nome"
+          placeholderTextColor="rgba(255,255,255,0.28)"
+          style={styles.input}
+        />
         <Text style={styles.label}>E-MAIL</Text>
         <TextInput
           value={email}
@@ -65,7 +81,7 @@ function LoginForm() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
-            placeholder="••••••••"
+            placeholder="Mínimo 6 caracteres"
             placeholderTextColor="rgba(255,255,255,0.28)"
             style={[styles.input, styles.passInput]}
             onSubmitEditing={() => void submit()}
@@ -75,30 +91,30 @@ function LoginForm() {
           </Pressable>
         </View>
         <Pressable onPress={() => void submit()} disabled={busy} style={styles.button}>
-          {busy ? <Loader size={22} color={colors.loginText} /> : <Text style={styles.buttonText}>Entrar</Text>}
+          {busy ? <Loader size={22} color={colors.loginText} /> : <Text style={styles.buttonText}>Criar conta</Text>}
         </Pressable>
-        <Pressable onPress={() => router.push('/cadastro')} style={styles.signupWrap}>
-          <Text style={styles.signupMuted}>Ainda não é cliente Gate8?</Text>
-          <Text style={styles.signupLink}>Crie sua conta de produtor aqui</Text>
+        <Pressable onPress={() => router.replace('/login')} style={styles.signupWrap}>
+          <Text style={styles.signupMuted}>Já tem conta?</Text>
+          <Text style={styles.signupLink}>Entrar</Text>
         </Pressable>
       </NeonCard>
     </>
   );
 }
 
-export default function LoginScreen() {
+export default function CadastroScreen() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const { status, loading: producerLoading } = useProducer();
 
   useEffect(() => {
     if (loading || producerLoading || !user) return;
-    router.replace(status === 'producer' ? '/home' : '/convite');
+    router.replace(status === 'producer' ? '/home' : '/cadastro-produtor');
   }, [loading, producerLoading, router, status, user]);
 
   return (
     <AuthScreenShell>
-      <LoginForm />
+      <SignupForm />
     </AuthScreenShell>
   );
 }
@@ -131,6 +147,11 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.danger,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  info: {
+    color: colors.success,
     marginBottom: 12,
     textAlign: 'center',
   },

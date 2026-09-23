@@ -4,18 +4,24 @@ import { Image, StyleSheet, View } from 'react-native';
 
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { useProducer } from '@/lib/producer-context';
 
 export default function SplashIndex() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { status, loading: producerLoading } = useProducer();
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || producerLoading) return;
     const timer = setTimeout(() => {
-      router.replace(user ? '/home' : '/login');
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+      router.replace(status === 'producer' ? '/home' : '/convite');
     }, 1600);
     return () => clearTimeout(timer);
-  }, [loading, router, user]);
+  }, [loading, producerLoading, router, status, user]);
 
   return (
     <View style={styles.splash}>

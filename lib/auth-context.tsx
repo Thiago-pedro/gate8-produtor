@@ -4,6 +4,7 @@ import {
   restoreSession,
   signInWithPassword,
   signOut as signOutRequest,
+  signUpWithPassword,
   subscribeAuth,
   type AuthUser,
 } from '@/lib/auth';
@@ -12,6 +13,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
 };
 
@@ -35,6 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signIn: async (email, password) => {
         setUser(await signInWithPassword(email, password));
+      },
+      signUp: async (email, password, name) => {
+        const result = await signUpWithPassword(email, password, name);
+        setUser(result.user);
+        return { needsConfirmation: result.needsConfirmation };
       },
       signOut: async () => {
         await signOutRequest();

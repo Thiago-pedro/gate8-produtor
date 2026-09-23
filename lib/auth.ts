@@ -53,6 +53,9 @@ function mapAuthError(message?: string) {
   const text = (message ?? '').toLowerCase();
   if (text.includes('invalid login')) return 'E-mail ou senha incorretos.';
   if (text.includes('email not confirmed')) return 'Confirme seu e-mail para entrar.';
+  if (text.includes('already registered') || text.includes('user already')) {
+    return 'Este e-mail já tem uma conta. Entre com e-mail e senha.';
+  }
   if (text.includes('rate limit')) return 'Muitas tentativas. Espere um pouco e tente de novo.';
   return message || 'Não foi possível entrar. Tente de novo.';
 }
@@ -138,6 +141,53 @@ export async function signInWithPassword(email: string, password: string) {
   const session = await parseAuthResponse(response);
   await saveSession(session);
   return session.user;
+}
+
+export async function signUpWithPassword(email: string, password: string, name: string) {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      email: email.trim(),
+      password,
+      data: { full_name: name.trim() },
+    }),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as {
+    msg?: string;
+    error_description?: string;
+    message?: string;
+    error?: string;
+    access_token?: string;
+    refresh_token?: string;
+    user?: {
+      id?: string;
+      email?: string | null;
+      user_metadata?: { full_name?: string; name?: string };
+    };
+    identities?: unknown[];
+  };
+
+  if (!response.ok) {
+    throw new Error(mapAuthError(body.msg || body.error_description || body.message || body.error));
+  }
+
+  if (body.identities && body.identities.length === 0) {
+    throw new Error('Este e-mail já tem uma conta. Entre com e-mail e senha.');
+  }
+
+  if (body.access_token && body.user) {
+    const session = {
+      accessToken: body.access_token,
+      refreshToken: body.refresh_token ?? '',
+      user: toUser(body.user),
+    };
+    await saveSession(session);
+    return { user: session.user, needsConfirmation: false };
+  }
+
+  return { user: null, needsConfirmation: true };
 }
 
 async function fetchUser(accessToken: string) {

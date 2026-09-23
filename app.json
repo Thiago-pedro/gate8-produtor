@@ -13,7 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "club.gate8.produtor"
+      "bundleIdentifier": "club.gate8.produtor",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["gate8"]
+      }
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",

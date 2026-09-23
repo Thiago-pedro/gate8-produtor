@@ -2,26 +2,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { NeonCard } from '@/components/NeonCard';
-import { Spinner } from '@/components/Spinner';
+import { Loader } from '@/components/Loader';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { fetchProducerEvents, type ProducerEvent } from '@/lib/events';
+import { formatEventDate } from '@/lib/format';
+import { useProducer } from '@/lib/producer-context';
 
 function formatDate(value: string | null) {
-  if (!value) return 'Data a definir';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Data a definir';
-  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatEventDate(value);
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
+  const { status, loading: producerLoading } = useProducer();
   const [events, setEvents] = useState<ProducerEvent[]>([]);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,30 +35,36 @@ export default function HomeScreen() {
   }
 
   useEffect(() => {
-    if (!loading && !user) router.replace('/login');
-  }, [loading, router, user]);
+    if (loading || producerLoading) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    if (status === 'guest') router.replace('/convite');
+  }, [loading, producerLoading, router, status, user]);
 
   const load = useCallback(async (soft = false) => {
+    if (!user) return;
     if (!soft) setBusy(true);
     setError(null);
     try {
-      setEvents(await fetchProducerEvents());
+      setEvents(await fetchProducerEvents(user.id));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível carregar os eventos.');
     } finally {
       setBusy(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (user) void load();
-  }, [load, user]);
+    if (user && status === 'producer') void load();
+  }, [load, status, user]);
 
-  if (loading || !user) {
+  if (loading || producerLoading || !user || status !== 'producer') {
     return (
       <View style={styles.boot}>
-        <Spinner size={28} color={colors.blue} />
+        <Loader screen />
       </View>
     );
   }
@@ -94,21 +100,44 @@ export default function HomeScreen() {
           />
         }
       >
-        {busy ? (
-          <View style={styles.center}>
-            <Spinner size={28} color={colors.blue} />
-          </View>
-        ) : null}
+        {busy ? <Loader screen /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {!busy && !error && events.length === 0 ? (
           <Text style={styles.empty}>Nenhum evento por aqui ainda.</Text>
         ) : null}
         {events.map((event) => (
-          <View key={event.id} style={styles.card}>
-            <Text style={styles.eventName}>{event.name}</Text>
-            <Text style={styles.eventMeta}>{formatDate(event.event_date)}</Text>
-            <Text style={styles.eventStatus}>{event.status === 'published' ? 'Publicado' : event.status || 'Rascunho'}</Text>
-          </View>
+          <Pressable
+            key={event.id}
+            onPress={() => router.push({ pathname: '/evento/[id]', params: { id: event.id } })}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          >
+            {event.banner_url ? (
+              <Image source={{ uri: event.banner_url }} style={styles.banner} />
+            ) : (
+              <View style={[styles.banner, styles.bannerEmpty]} />
+            )}
+            <View style={styles.cardBody}>
+              <Text style={styles.eventName} numberOfLines={2}>
+                {event.name}
+              </Text>
+              <View style={styles.metaRow}>
+                <Ionicons name="calendar-outline" size={14} color={colors.blue} />
+                <Text style={styles.eventMeta}>{formatDate(event.event_date)}</Text>
+              </View>
+              {event.location ? (
+                <View style={styles.metaRow}>
+                  <Ionicons name="location-outline" size={14} color={colors.blue} />
+                  <Text style={styles.eventMeta} numberOfLines={1}>
+                    {event.location}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={styles.sold}>
+                {event.sold} {event.sold === 1 ? 'ingresso vendido' : 'ingressos vendidos'}
+                {event.quantity ? ` · ${event.quantity} no total` : ''}
+              </Text>
+            </View>
+          </Pressable>
         ))}
       </ScrollView>
 
@@ -193,13 +222,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   list: {
+    flexGrow: 1,
     paddingHorizontal: 16,
     paddingBottom: 24,
     gap: 10,
-  },
-  center: {
-    paddingVertical: 32,
-    alignItems: 'center',
   },
   error: {
     color: colors.danger,
@@ -215,25 +241,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 16,
+    overflow: 'hidden',
+  },
+  cardPressed: {
+    opacity: 0.88,
+  },
+  banner: {
+    width: '100%',
+    height: 140,
+    backgroundColor: colors.bgElevated,
+  },
+  bannerEmpty: {
+    backgroundColor: colors.bgElevated,
+  },
+  cardBody: {
     padding: 14,
-    gap: 4,
+    gap: 6,
   },
   eventName: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   eventMeta: {
     color: colors.muted,
     fontSize: 13,
+    flex: 1,
   },
-  eventStatus: {
+  sold: {
     color: colors.blue,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     marginTop: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
   },
   modalRoot: {
     flex: 1,

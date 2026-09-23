@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/constants/theme';
 import { AuthProvider } from '@/lib/auth-context';
+import { ProducerProvider } from '@/lib/producer-context';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -48,20 +49,26 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navTheme}>
       <AuthProvider>
-        <StatusBar style="light" />
-        <BootSplash>
-          <Stack
-            initialRouteName="index"
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.bg },
-            }}
-          >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="login" />
-            <Stack.Screen name="home" />
-          </Stack>
-        </BootSplash>
+        <ProducerProvider>
+          <StatusBar style="light" />
+          <BootSplash>
+            <Stack
+              initialRouteName="index"
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="login" />
+              <Stack.Screen name="cadastro" />
+              <Stack.Screen name="convite" />
+              <Stack.Screen name="cadastro-produtor" />
+              <Stack.Screen name="home" />
+              <Stack.Screen name="evento/[id]" />
+            </Stack>
+          </BootSplash>
+        </ProducerProvider>
       </AuthProvider>
     </ThemeProvider>
   );
