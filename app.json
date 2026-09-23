@@ -15,7 +15,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "club.gate8.produtor",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["gate8"]
+        "LSApplicationQueriesSchemes": [
+          "gate8"
+        ]
       }
     },
     "android": {
@@ -37,7 +39,16 @@
           "imageWidth": 180
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "A Gate8 Produtor usa suas fotos para enviar a arte e o mapa do evento.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

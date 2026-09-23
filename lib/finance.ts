@@ -3,17 +3,16 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
 
 const FN_FEES = '915adb06b5a9905d31d0ef78f112185f447176a61bd89297229912ee0bb03e08';
-const FN_NAMES = 'f3877e983691ad4a7c353fca36679bc8dabbc3dc422be300d3672f7038cf9a6c';
-const FN_COUPONS = '62d3f0a1966c1677137c3679d30aeae1587abdbcc4fbbfb0fff44b8750c9f21e';
+const FN_COUPONS = 'd4a64bc7e81e84235d128c0567f46ada25f0e084a6536efd324ca09920c1315f';
+const FN_COUPONS_FALLBACK = '62d3f0a1966c1677137c3679d30aeae1587abdbcc4fbbfb0fff44b8750c9f21e';
 
 const PIX_BANK = 1.09;
 const CREDIT_BANK = 5.09;
-export const FINANCE_PAGE_SIZE = 10;
 
 type Row = Record<string, unknown>;
 type FeeSplit = { bank?: number; gate8?: number };
 
-export type FinancePurchase = {
+type FinancePurchase = {
   key: string;
   purchaseCode: string | null;
   sampleCode: string;
@@ -30,9 +29,14 @@ export type FinancePurchase = {
   net: number;
   couponCode: string | null;
   couponDiscount: number;
+  hasCoupon: boolean;
   createdAt: string | null;
   installments: number;
   snapshotBankPercent: number | null;
+  paidTotal: number;
+  paidKnown: boolean;
+  cancelledCount: number;
+  charged: number;
 };
 
 export type FinanceChannel = {
@@ -54,7 +58,6 @@ export type FinanceChannel = {
 export type EventFinance = {
   producerMode: boolean;
   producerPercent: number;
-  purchases: FinancePurchase[];
   totals: {
     gross: number;
     serviceFee: number;
@@ -64,6 +67,8 @@ export type EventFinance = {
     courtesy: number;
     couponDiscount: number;
     couponCount: number;
+    cancelledTickets: number;
+    cancelledAmount: number;
   };
   site: FinanceChannel;
   pos: FinanceChannel;
@@ -85,6 +90,7 @@ type Group = {
   sampleCode: string;
   couponCode: string | null;
   couponDiscount: number;
+  cancelledCount: number;
   paidTotal: number;
   paidKnown: boolean;
   seenPurchases: Set<string>;
@@ -179,6 +185,108 @@ function money(value: number) {
   return Number(value.toFixed(2));
 }
 
+function isCancelledStatus(value: unknown) {
+  const status = text(value).trim().toLowerCase();
+  return [
+    'cancelled',
+    'canceled',
+    'refunded',
+    'refund',
+    'void',
+    'reversed',
+    'estornado',
+    'chargedback',
+  ].includes(status);
+}
+
+type CouponHit = { code: string | null; discount: number };
+
+function couponFromUnknown(value: unknown): CouponHit | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Row;
+  const code = text(row.code || row.coupon_code || row.couponCode) || null;
+  const discount = num(
+    row.discount ?? row.discount_amount ?? row.coupon_discount ?? row.couponDiscount ?? row.amount
+  );
+  if (!code && !(discount > 0)) return null;
+  return { code, discount };
+}
+
+function mergeCoupon(into: Record<string, CouponHit>, key: string | null, hit: CouponHit | null) {
+  if (!key || !hit) return;
+  const current = into[key];
+  if (!current) {
+    into[key] = { code: hit.code, discount: hit.discount };
+    return;
+  }
+  if (!current.code && hit.code) current.code = hit.code;
+  if (!(current.discount > 0) && hit.discount > 0) current.discount = hit.discount;
+}
+
+function normalizeCoupons(raw: unknown): { byPurchaseId: Record<string, CouponHit>; byOrderId: Record<string, CouponHit> } {
+  const byPurchaseId: Record<string, CouponHit> = {};
+  const byOrderId: Record<string, CouponHit> = {};
+  if (!raw) return { byPurchaseId, byOrderId };
+  const root = typeof raw === 'object' ? (raw as Row) : {};
+  const nested = root.data && typeof root.data === 'object' ? (root.data as Row) : root;
+
+  const asMap = (value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+  const purchaseMap = asMap(nested.byPurchaseId ?? nested.by_purchase_id);
+  if (purchaseMap) {
+    for (const [key, value] of Object.entries(purchaseMap)) {
+      mergeCoupon(byPurchaseId, key, couponFromUnknown(value));
+    }
+  }
+  const orderMap = asMap(nested.byOrderId ?? nested.by_order_id);
+  if (orderMap) {
+    for (const [key, value] of Object.entries(orderMap)) {
+      mergeCoupon(byOrderId, key, couponFromUnknown(value));
+    }
+  }
+
+  const rows = Array.isArray(nested)
+    ? nested
+    : Array.isArray(nested.coupons)
+      ? nested.coupons
+      : Array.isArray(nested.items)
+        ? nested.items
+        : [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const item = row as Row;
+    const hit = couponFromUnknown(item);
+    mergeCoupon(byPurchaseId, text(item.purchase_id || item.purchaseId) || null, hit);
+    mergeCoupon(byOrderId, text(item.pagarme_order_id || item.order_id) || null, hit);
+  }
+
+  return { byPurchaseId, byOrderId };
+}
+
+function couponFromPurchase(purchase: Row | null): CouponHit | null {
+  if (!purchase) return null;
+  const snapshot =
+    purchase.fee_snapshot && typeof purchase.fee_snapshot === 'object' ? (purchase.fee_snapshot as Row) : null;
+  const code =
+    text(
+      purchase.coupon_code ||
+        purchase.couponCode ||
+        snapshot?.coupon_code ||
+        snapshot?.couponCode
+    ) || null;
+  const discount = num(
+    purchase.discount_amount ??
+      purchase.coupon_discount ??
+      purchase.couponDiscount ??
+      snapshot?.coupon_discount ??
+      snapshot?.discount_amount ??
+      snapshot?.couponDiscount
+  );
+  if (!code && !(discount > 0)) return null;
+  return { code, discount };
+}
+
 function emptyChannel(): FinanceChannel {
   return {
     count: 0,
@@ -197,20 +305,11 @@ function emptyChannel(): FinanceChannel {
   };
 }
 
-export function paymentLabel(method: string | null, courtesy: boolean, cancelled: boolean) {
-  if (cancelled) return 'Cancelado';
-  if (courtesy || !method) return 'Cortesia';
-  if (method === 'pix') return 'PIX';
-  if (method === 'credit_card' || method === 'credit') return 'Cartão de Crédito';
-  if (method === 'debit' || method === 'debit_card') return 'Cartão de Débito';
-  if (method === 'cash') return 'Dinheiro';
-  if (method === 'cashless') return 'Cashless';
-  return method;
-}
-
 async function fetchTickets(eventId: string) {
   const id = encodeURIComponent(eventId);
   const purchaseSelects = [
+    'code,pagarme_order_id,user_id,created_at,total_amount,fee_snapshot,coupon_code,discount_amount,coupon_discount,status',
+    'code,pagarme_order_id,user_id,created_at,total_amount,fee_snapshot,coupon_code,discount_amount',
     'code,pagarme_order_id,user_id,created_at,total_amount,fee_snapshot',
     'code,pagarme_order_id,created_at,total_amount,fee_snapshot',
     'code,total_amount,fee_snapshot',
@@ -276,40 +375,37 @@ async function fetchFees(eventId: string) {
   }
 }
 
-async function fetchNames(ids: string[]) {
-  if (ids.length === 0) return {} as Record<string, string>;
-  try {
-    const data = await callServerFn<{ names?: Record<string, string> }>(FN_NAMES, { ids });
-    return data?.names ?? {};
-  } catch {
-    try {
-      const rows = asRows(
-        await rest(
-          `profiles?select=id,full_name&id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})`
-        )
-      );
-      const names: Record<string, string> = {};
-      for (const row of rows) {
-        const id = text(row.id);
-        const name = text(row.full_name);
-        if (id && name) names[id] = name;
+async function fetchCoupons(eventId: string) {
+  for (const id of [FN_COUPONS, FN_COUPONS_FALLBACK]) {
+    for (const payload of [{ event_id: eventId }, { eventId }]) {
+      try {
+        const data = await callServerFn<unknown>(id, payload);
+        const normalized = normalizeCoupons(data);
+        if (Object.keys(normalized.byPurchaseId).length > 0 || Object.keys(normalized.byOrderId).length > 0) {
+          return normalized;
+        }
+      } catch {
+        // tenta o próximo payload / endpoint
       }
-      return names;
-    } catch {
-      return {};
     }
   }
+
+  const encoded = encodeURIComponent(eventId);
+  const rows = await firstRest([
+    `coupon_redemptions?select=purchase_id,pagarme_order_id,code,discount,discount_amount,coupon_code&event_id=eq.${encoded}`,
+    `coupon_usages?select=purchase_id,pagarme_order_id,code,discount,discount_amount,coupon_code&event_id=eq.${encoded}`,
+    `purchase_coupons?select=purchase_id,pagarme_order_id,code,discount,discount_amount,coupon_code&event_id=eq.${encoded}`,
+    `applied_coupons?select=purchase_id,pagarme_order_id,code,discount,discount_amount,coupon_code&event_id=eq.${encoded}`,
+    `event_coupon_uses?select=purchase_id,pagarme_order_id,code,discount,discount_amount,coupon_code&event_id=eq.${encoded}`,
+  ]);
+  return normalizeCoupons(rows);
 }
 
-async function fetchCoupons(eventId: string) {
-  try {
-    return await callServerFn<{
-      byPurchaseId?: Record<string, { code?: string; discount?: number }>;
-      byOrderId?: Record<string, { code?: string; discount?: number }>;
-    }>(FN_COUPONS, { event_id: eventId });
-  } catch {
-    return { byPurchaseId: {}, byOrderId: {} };
-  }
+function chargedAmount(group: Group) {
+  if (group.paidKnown && group.paidTotal > 0) return group.paidTotal;
+  const snapshotCharge = group.snapshotNet + group.snapshotBankFee + group.snapshotGate8Fee;
+  if (snapshotCharge > 0) return snapshotCharge;
+  return group.gross;
 }
 
 function ticketPrice(ticket: Row, tables: Map<string, Row>) {
@@ -348,10 +444,6 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     fetchCoupons(eventId),
   ]);
 
-  const creatorIds = [
-    ...new Set(tickets.map((ticket) => text(ticket.created_by)).filter(Boolean)),
-  ];
-  const names = await fetchNames(creatorIds);
   const tables = new Map(tableRows.map((row) => [text(row.id), row]));
   const detailed = fees?.siteFeesDetailed;
   const pixGate8 = num(detailed?.pix?.gate8);
@@ -378,16 +470,15 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     if (!courtesy && !isPos && !purchaseId) continue;
 
     const unit = ticketPrice(ticket, tables);
-    const cancelled = text(ticket.status) === 'cancelled';
+    const cancelled = isCancelledStatus(ticket.status) || isCancelledStatus(purchase?.status);
     const billable = courtesy || cancelled ? 0 : unit;
-    const buyer =
-      (ticket.created_by ? names[text(ticket.created_by)] : '') || text(ticket.holder_name) || '—';
+    const buyer = text(ticket.holder_name) || '—';
     const coupon =
       (purchaseId ? coupons.byPurchaseId?.[purchaseId] : undefined) ??
       (purchase?.pagarme_order_id
         ? coupons.byOrderId?.[text(purchase.pagarme_order_id)]
         : undefined) ??
-      null;
+      couponFromPurchase(purchase);
     const key = groupKey(ticket, purchase);
     const paidTotal = purchase?.total_amount != null ? num(purchase.total_amount) : null;
     const snapshot = purchase?.fee_snapshot && typeof purchase.fee_snapshot === 'object'
@@ -396,14 +487,15 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     const current = groups.get(key);
 
     if (current) {
-      if (!current.couponCode && coupon) {
-        current.couponCode = coupon.code ?? null;
+      if (!current.couponCode && coupon?.code) current.couponCode = coupon.code;
+      if (!(current.couponDiscount > 0) && coupon && coupon.discount > 0) {
         current.couponDiscount = num(coupon.discount);
       }
       current.ticketCount += 1;
+      current.cancelledCount += cancelled ? 1 : 0;
       current.gross += unit;
       current.billableGross += billable;
-      if (!cancelled) current.isCancelled = false;
+      current.isCancelled = current.cancelledCount === current.ticketCount;
       if (purchaseId && paidTotal != null && Number.isFinite(paidTotal) && !current.seenPurchases.has(purchaseId)) {
         current.seenPurchases.add(purchaseId);
         current.paidTotal += paidTotal;
@@ -427,6 +519,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         isCancelled: cancelled,
         isPos,
         ticketCount: 1,
+        cancelledCount: cancelled ? 1 : 0,
         gross: unit,
         billableGross: billable,
         financialGross: billable,
@@ -448,6 +541,17 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
   }
 
   const purchases = Array.from(groups.values()).map((group) => {
+    if (
+      !(group.couponDiscount > 0) &&
+      !group.isCancelled &&
+      !group.isCourtesy &&
+      !group.isPos &&
+      !producerMode &&
+      group.snapshotKnown
+    ) {
+      const inferred = money(group.gross - group.snapshotNet);
+      if (inferred >= 0.01) group.couponDiscount = inferred;
+    }
     group.billableGross = Math.max(0, group.billableGross - group.couponDiscount);
     group.financialGross = group.billableGross;
     let serviceFee = 0;
@@ -482,6 +586,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     const net = group.snapshotKnown
       ? group.snapshotNet
       : group.financialGross - serviceFee - bankFee;
+    const hasCoupon = Boolean(group.couponCode) || group.couponDiscount > 0;
     return {
       key: group.key,
       purchaseCode: group.purchaseCode,
@@ -499,9 +604,14 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       net,
       couponCode: group.couponCode,
       couponDiscount: group.couponDiscount,
+      hasCoupon,
       createdAt: group.createdAt,
       installments: group.installments,
       snapshotBankPercent: group.snapshotBankPercent,
+      paidTotal: group.paidTotal,
+      paidKnown: group.paidKnown,
+      cancelledCount: group.cancelledCount,
+      charged: chargedAmount(group),
     } satisfies FinancePurchase;
   });
 
@@ -513,9 +623,16 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       acc.net += purchase.net;
       if (!purchase.isCourtesy && !purchase.isCancelled) acc.paid += purchase.ticketCount;
       if (purchase.isCourtesy) acc.courtesy += purchase.ticketCount;
-      if (purchase.couponCode && purchase.couponDiscount > 0 && !purchase.isCancelled) {
+      if (purchase.hasCoupon && !purchase.isCancelled) {
         acc.couponDiscount += purchase.couponDiscount;
         acc.couponCount += 1;
+      }
+      if (purchase.cancelledCount > 0) {
+        acc.cancelledTickets += purchase.cancelledCount;
+        acc.cancelledAmount +=
+          purchase.ticketCount > 0
+            ? purchase.charged * (purchase.cancelledCount / purchase.ticketCount)
+            : purchase.charged;
       }
       return acc;
     },
@@ -528,6 +645,8 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       courtesy: 0,
       couponDiscount: 0,
       couponCount: 0,
+      cancelledTickets: 0,
+      cancelledAmount: 0,
     }
   );
 
@@ -586,7 +705,6 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
   return {
     producerMode,
     producerPercent,
-    purchases,
     totals,
     site,
     pos: posChannel,

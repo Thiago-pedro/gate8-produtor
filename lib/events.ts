@@ -19,6 +19,7 @@ export type EventBatch = {
   id: string;
   name: string;
   sector: string | null;
+  gender: string | null;
   price: number;
   quantity: number;
   sold: number;
@@ -51,6 +52,7 @@ export type ProducerEventDetail = {
   };
   batches: EventBatch[];
   sold: number;
+  courtesy: number;
   quantity: number;
   validated: number;
   cancelled: number;
@@ -84,6 +86,78 @@ async function rest<T>(path: string): Promise<T> {
     throw new Error(message || 'Não foi possível carregar os dados do evento.');
   }
   return body as T;
+}
+
+async function restPost(path: string, body: unknown) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method: 'POST',
+    headers: {
+      ...(await headers()),
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await response.text();
+  let parsed: unknown = null;
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!response.ok) {
+    const message =
+      parsed && typeof parsed === 'object' && parsed !== null && 'message' in parsed
+        ? String((parsed as { message?: string }).message)
+        : null;
+    throw new Error(message || 'Não foi possível criar o lote.');
+  }
+}
+
+async function restPatch(path: string, body: unknown) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method: 'PATCH',
+    headers: {
+      ...(await headers()),
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify(body),
+  });
+  const raw = await response.text();
+  let parsed: unknown = null;
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!response.ok) {
+    const message =
+      parsed && typeof parsed === 'object' && parsed !== null && 'message' in parsed
+        ? String((parsed as { message?: string }).message)
+        : null;
+    throw new Error(message || 'Não foi possível salvar o lote.');
+  }
+}
+
+async function restCount(path: string): Promise<number | null> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      ...(await headers()),
+      Prefer: 'count=exact',
+      Range: '0-0',
+    },
+  });
+  if (!response.ok) return null;
+  const range = response.headers.get('content-range') ?? response.headers.get('Content-Range');
+  const total = range?.split('/')[1];
+  if (total && total !== '*') {
+    const n = Number(total);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
 }
 
 async function restOrEmpty<T>(path: string, fallback: T): Promise<T> {
@@ -177,6 +251,19 @@ function text(value: unknown) {
   return value == null ? '' : String(value);
 }
 
+const CANCELLED_STATUSES = [
+  'cancelled',
+  'canceled',
+  'refunded',
+  'refund',
+  'void',
+  'reversed',
+  'estornado',
+  'chargedback',
+];
+
+const CANCELLED_IN = CANCELLED_STATUSES.join(',');
+
 function isOpenEvent(event: { is_ended?: boolean | null; status?: string | null }) {
   if (event.is_ended) return false;
   if (event.status === 'closed' || event.status === 'cancelled' || event.status === 'finished') return false;
@@ -235,15 +322,16 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
   const row = rows[0];
   if (!row) throw new Error('Evento não encontrado.');
 
-  const batches = asRows(
-    await restOrEmpty(
+  const batches = (
+    await firstRest([
+      `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
       `ticket_batches?select=id,name,sector,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
-      []
-    )
+    ])
   ).map((batch) => ({
     id: text(batch.id),
     name: text(batch.name) || 'Lote',
     sector: batch.sector ? text(batch.sector) : null,
+    gender: batch.gender ? text(batch.gender) : null,
     price: num(batch.price),
     quantity: num(batch.quantity),
     sold: num(batch.sold),
@@ -263,7 +351,16 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     'id,holder_name,status,checked_in_at,batch_id',
   ];
 
-  const [usedTickets, checkinRows, cancelledRows] = await Promise.all([
+  const [
+    usedTickets,
+    checkinRows,
+    cancelledRows,
+    courtesyAll,
+    paidAll,
+    cancelledPaid,
+    cancelledCourtesy,
+    cancelledByOrder,
+  ] = await Promise.all([
     firstRest(
       ticketSelects.flatMap((select) => [
         `tickets?select=${select}&event_id=eq.${id}&or=${usedFilter}&order=checked_in_at.desc&limit=200`,
@@ -275,7 +372,21 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       `checkins?select=id,ticket_id,created_at,tickets(${ticketSelects[1]})&event_id=eq.${id}&order=created_at.desc&limit=200`,
       `checkins?select=id,ticket_id,created_at&event_id=eq.${id}&order=created_at.desc&limit=200`,
     ]),
-    firstRest([`tickets?select=id&event_id=eq.${id}&status=eq.cancelled&limit=1000`]),
+    firstRest([
+      `tickets?select=id&event_id=eq.${id}&status=in.(${CANCELLED_IN})&limit=1000`,
+      `tickets?select=id&event_id=eq.${id}&status=eq.cancelled&limit=1000`,
+    ]),
+    restCount(`tickets?select=id&event_id=eq.${id}&payment_method=is.null`),
+    restCount(`tickets?select=id&event_id=eq.${id}&payment_method=not.is.null`),
+    restCount(
+      `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&status=in.(${CANCELLED_IN})`
+    ),
+    restCount(
+      `tickets?select=id&event_id=eq.${id}&payment_method=is.null&status=in.(${CANCELLED_IN})`
+    ),
+    restCount(
+      `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&purchase_orders.status=in.(${CANCELLED_IN})`
+    ),
   ]);
 
   const firstScan = earliestCheckinByTicket(checkinRows);
@@ -290,6 +401,18 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
 
   const cancelled = cancelledRows.length;
   const validated = usedTickets.length;
+  const courtesy =
+    courtesyAll != null
+      ? Math.max(0, courtesyAll - (cancelledCourtesy ?? 0))
+      : 0;
+  const refundedPaid =
+    cancelledPaid != null || cancelledByOrder != null
+      ? Math.max(cancelledPaid ?? 0, cancelledByOrder ?? 0)
+      : cancelled;
+  const soldCount =
+    paidAll != null
+      ? Math.max(0, paidAll - refundedPaid)
+      : Math.max(0, sold - courtesy - cancelled);
 
   const tokens = asRows(
     await restOrEmpty(
@@ -312,7 +435,8 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       is_ended: Boolean(row.is_ended),
     },
     batches,
-    sold,
+    sold: soldCount,
+    courtesy,
     quantity: quantity || num(row.capacity),
     validated,
     cancelled,
@@ -320,4 +444,107 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     token: tokens[0]?.token ? text(tokens[0].token) : null,
     checkins,
   };
+}
+
+export const BATCH_GENDERS = [
+  { id: 'unisex', label: 'Unissex (entrada)' },
+  { id: 'masculino', label: 'Masculino' },
+  { id: 'feminino', label: 'Feminino' },
+] as const;
+
+export type BatchGender = (typeof BATCH_GENDERS)[number]['id'];
+
+export function batchTicketName(batch: EventBatch) {
+  if (batch.sector && batch.name.startsWith(`${batch.sector} - `)) {
+    return batch.name.slice(batch.sector.length + 3);
+  }
+  return batch.name;
+}
+
+export function asBatchGender(value: string | null): BatchGender {
+  if (value === 'masculino' || value === 'feminino' || value === 'unisex') return value;
+  return 'unisex';
+}
+
+function batchFields(input: {
+  sector: string;
+  label: string;
+  gender: BatchGender;
+  price: number;
+  quantity: number;
+  validFrom: string | null;
+  validUntil: string | null;
+  active: boolean;
+}) {
+  const sector = input.sector.trim();
+  const label = input.label.trim();
+  if (!sector) throw new Error('Informe o setor.');
+  if (!label) throw new Error('Informe o nome do ingresso.');
+  if (!Number.isFinite(input.price) || input.price < 0) {
+    throw new Error('Informe um preço válido.');
+  }
+  if (!Number.isInteger(input.quantity) || input.quantity < 0) {
+    throw new Error('Informe a quantidade.');
+  }
+  return {
+    sector,
+    name: `${sector} - ${label}`,
+    gender: input.gender,
+    price: input.price,
+    quantity: input.quantity,
+    valid_from: input.validFrom,
+    valid_until: input.validUntil,
+    active: input.active,
+  };
+}
+
+export async function createTicketBatch(input: {
+  eventId: string;
+  sector: string;
+  label: string;
+  gender: BatchGender;
+  price: number;
+  quantity: number;
+  validFrom: string | null;
+  validUntil: string | null;
+  active: boolean;
+}) {
+  const payload = { event_id: input.eventId, ...batchFields(input) };
+  try {
+    await restPost('ticket_batches', payload);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : '';
+    if (/ticket_type/i.test(message)) {
+      await restPost('ticket_batches', { ...payload, ticket_type: input.gender });
+      return;
+    }
+    throw caught;
+  }
+}
+
+export async function updateTicketBatch(
+  batchId: string,
+  input: {
+    sector: string;
+    label: string;
+    gender: BatchGender;
+    price: number;
+    quantity: number;
+    validFrom: string | null;
+    validUntil: string | null;
+    active: boolean;
+  }
+) {
+  const payload = batchFields(input);
+  const path = `ticket_batches?id=eq.${encodeURIComponent(batchId)}`;
+  try {
+    await restPatch(path, payload);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : '';
+    if (/ticket_type/i.test(message)) {
+      await restPatch(path, { ...payload, ticket_type: input.gender });
+      return;
+    }
+    throw caught;
+  }
 }

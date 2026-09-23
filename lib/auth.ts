@@ -41,6 +41,11 @@ export async function getAccessToken() {
   return session?.accessToken ?? null;
 }
 
+export async function getAuthUser() {
+  const session = await readSession();
+  return session?.user ?? null;
+}
+
 function authHeaders(accessToken?: string) {
   return {
     apikey: SUPABASE_ANON_KEY,

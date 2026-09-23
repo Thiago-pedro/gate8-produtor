@@ -85,7 +85,16 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.hello}>Olá{user.name ? `, ${user.name.split(' ')[0]}` : ''}</Text>
-      <Text style={styles.lead}>Meus eventos</Text>
+      <View style={styles.leadRow}>
+        <Text style={styles.lead}>Meus eventos</Text>
+        <Pressable
+          onPress={() => router.push('/evento/novo')}
+          style={({ pressed }) => [styles.createBtn, pressed && styles.cardPressed]}
+        >
+          <Ionicons name="add" size={16} color={colors.loginText} />
+          <Text style={styles.createText}>Criar evento</Text>
+        </Pressable>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.list}
@@ -103,7 +112,7 @@ export default function HomeScreen() {
         {busy ? <Loader screen /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {!busy && !error && events.length === 0 ? (
-          <Text style={styles.empty}>Nenhum evento por aqui ainda.</Text>
+          <Text style={styles.empty}>Nenhum evento por aqui ainda. Crie o primeiro.</Text>
         ) : null}
         {events.map((event) => (
           <Pressable
@@ -217,9 +226,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
+    flex: 1,
+  },
+  leadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
     marginTop: 6,
     marginBottom: 12,
+    gap: 10,
+  },
+  createBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.blue,
+    borderRadius: 999,
+    height: 36,
+    paddingHorizontal: 12,
+  },
+  createText: {
+    color: colors.loginText,
+    fontSize: 13,
+    fontWeight: '700',
   },
   list: {
     flexGrow: 1,

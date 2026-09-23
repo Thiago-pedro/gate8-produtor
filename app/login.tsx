@@ -1,12 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AuthScreenShell, useAuthKeyboard } from '@/components/AuthScreenShell';
 import { Logo } from '@/components/Logo';
 import { NeonCard } from '@/components/NeonCard';
-import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
@@ -75,7 +74,7 @@ function LoginForm() {
           </Pressable>
         </View>
         <Pressable onPress={() => void submit()} disabled={busy} style={styles.button}>
-          {busy ? <Loader size={22} color={colors.loginText} /> : <Text style={styles.buttonText}>Entrar</Text>}
+          {busy ? <ActivityIndicator color={colors.loginText} /> : <Text style={styles.buttonText}>Entrar</Text>}
         </Pressable>
         <Pressable onPress={() => router.push('/cadastro')} style={styles.signupWrap}>
           <Text style={styles.signupMuted}>Ainda não é cliente Gate8?</Text>

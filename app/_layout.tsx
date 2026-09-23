@@ -65,6 +65,7 @@ export default function RootLayout() {
               <Stack.Screen name="convite" />
               <Stack.Screen name="cadastro-produtor" />
               <Stack.Screen name="home" />
+              <Stack.Screen name="evento/novo" />
               <Stack.Screen name="evento/[id]" />
             </Stack>
           </BootSplash>

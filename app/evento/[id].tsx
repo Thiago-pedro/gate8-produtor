@@ -2,24 +2,45 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EstornosSection } from '@/components/EstornosSection';
+import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
+import { PdvSection } from '@/components/PdvSection';
+import { RetiradasSection } from '@/components/RetiradasSection';
+import { TermosSection } from '@/components/TermosSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
-import { fetchProducerEventDetail, type ProducerEventDetail } from '@/lib/events';
+import { batchTicketName, fetchProducerEventDetail, type EventBatch, type ProducerEventDetail } from '@/lib/events';
 import {
   fetchEventFinance,
-  FINANCE_PAGE_SIZE,
-  paymentLabel,
   type EventFinance,
   type FinanceChannel,
-  type FinancePurchase,
 } from '@/lib/finance';
-import { formatBRL, formatCheckinAt, formatEventDateTime, formatFinanceAt } from '@/lib/format';
+import { formatBRL, formatEventDateTime } from '@/lib/format';
 
-const HISTORY_PAGE_SIZE = 10;
+type EventSection =
+  | 'lotes'
+  | 'portaria'
+  | 'historico'
+  | 'financeiro'
+  | 'retiradas'
+  | 'estornos'
+  | 'termos'
+  | 'pdv';
+
+const EVENT_TABS: { key: EventSection; label: string }[] = [
+  { key: 'estornos', label: 'Estornos' },
+  { key: 'financeiro', label: 'Financeiro' },
+  { key: 'lotes', label: 'Lotes' },
+  { key: 'portaria', label: 'Portaria' },
+  { key: 'retiradas', label: 'Retiradas' },
+  { key: 'termos', label: 'Termos de uso' },
+  { key: 'pdv', label: 'Terminal PDV' },
+  { key: 'historico', label: 'Validação' },
+];
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -82,7 +103,7 @@ function Kpi({
   label: string;
   value: string;
   hint?: string;
-  tone?: 'coupon' | 'net';
+  tone?: 'coupon' | 'net' | 'danger';
 }) {
   return (
     <View
@@ -90,94 +111,40 @@ function Kpi({
         styles.kpi,
         tone === 'coupon' && styles.kpiCoupon,
         tone === 'net' && styles.kpiNet,
+        tone === 'danger' && styles.kpiDanger,
       ]}
     >
-      <Text style={[styles.kpiLabel, tone === 'coupon' && styles.kpiCouponText]}>{label}</Text>
-      <Text style={[styles.kpiValue, tone === 'coupon' && styles.kpiCouponText, tone === 'net' && styles.kpiNetText]}>
+      <Text
+        style={[
+          styles.kpiLabel,
+          tone === 'coupon' && styles.kpiCouponText,
+          tone === 'danger' && styles.kpiDangerText,
+        ]}
+      >
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.kpiValue,
+          tone === 'coupon' && styles.kpiCouponText,
+          tone === 'net' && styles.kpiNetText,
+          tone === 'danger' && styles.kpiDangerText,
+        ]}
+      >
         {value}
       </Text>
-      {hint ? <Text style={[styles.kpiHint, tone === 'coupon' && styles.kpiCouponHint]}>{hint}</Text> : null}
-    </View>
-  );
-}
-
-function PurchaseCard({ item, producerMode }: { item: FinancePurchase; producerMode: boolean }) {
-  const method = paymentLabel(item.method, item.isCourtesy, item.isCancelled);
-  const parcels =
-    !item.isCancelled && item.method === 'credit_card' ? `${item.installments}x` : '—';
-  return (
-    <View
-      style={[
-        styles.purchase,
-        item.isCancelled && styles.purchaseCancelled,
-        item.couponCode && styles.purchaseCoupon,
-      ]}
-    >
-      <View style={styles.purchaseTop}>
-        <View style={styles.purchaseLeft}>
-          <Text style={styles.purchaseCode}>
-            {item.purchaseCode ? `Compra ${item.purchaseCode}` : item.sampleCode.slice(0, 8).toUpperCase()}
-          </Text>
-          <Text style={styles.purchaseMeta}>
-            {item.purchaseCode
-              ? `${item.ticketCount} ingresso${item.ticketCount > 1 ? 's' : ''}`
-              : 'Avulso'}
-            {' · '}
-            {formatFinanceAt(item.createdAt)}
-          </Text>
-        </View>
-        <View style={styles.purchaseRight}>
-          <Text style={styles.channelLabel}>Líquido</Text>
-          <Text style={styles.purchaseNet}>{formatBRL(item.net)}</Text>
-        </View>
-      </View>
-      <Text style={styles.purchaseBuyer}>{item.buyer}</Text>
-      <View style={styles.purchaseRow}>
+      {hint ? (
         <Text
           style={[
-            styles.purchasePay,
-            item.isCourtesy && styles.purchaseCourtesy,
-            item.isCancelled && styles.purchaseStrike,
+            styles.kpiHint,
+            tone === 'coupon' && styles.kpiCouponHint,
+            tone === 'danger' && styles.kpiDangerHint,
           ]}
         >
-          {method}
-          {!item.isCancelled && item.method === 'credit_card' ? ` · ${parcels}` : ''}
+          {hint}
         </Text>
-        <Text style={styles.purchaseMeta}>Bruto {formatBRL(item.financialGross)}</Text>
-      </View>
-      <View style={styles.purchaseFees}>
-        <Text style={styles.purchaseFee}>- serviço {formatBRL(item.serviceFee)}</Text>
-        {producerMode ? null : (
-          <Text style={styles.purchaseFee}>
-            - banco {formatBRL(item.bankFee)}
-            {item.snapshotBankPercent != null
-              ? ` (${item.snapshotBankPercent.toLocaleString('pt-BR', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}%)`
-              : ''}
-          </Text>
-        )}
-      </View>
+      ) : null}
     </View>
-  );
-}
-
-function Row({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-      <Ionicons name={icon} size={18} color={colors.blue} />
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-    </Pressable>
   );
 }
 
@@ -188,14 +155,14 @@ export default function EventoScreen() {
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<'resumo' | 'portaria' | 'historico' | 'financeiro'>('resumo');
+  const [section, setSection] = useState<EventSection>('lotes');
+  const [reloadKey, setReloadKey] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [historyPage, setHistoryPage] = useState(0);
   const [finance, setFinance] = useState<EventFinance | null>(null);
   const [financeBusy, setFinanceBusy] = useState(false);
   const [financeError, setFinanceError] = useState<string | null>(null);
-  const [financePage, setFinancePage] = useState(0);
+  const [newBatchOpen, setNewBatchOpen] = useState(false);
+  const [editingBatch, setEditingBatch] = useState<EventBatch | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function copyText(value: string, message: string) {
@@ -208,13 +175,8 @@ export default function EventoScreen() {
   }
 
   useEffect(() => {
-    setHistoryPage(0);
-  }, [search, id]);
-
-  useEffect(() => {
     setFinance(null);
     setFinanceError(null);
-    setFinancePage(0);
     setFinanceBusy(false);
   }, [id]);
 
@@ -288,18 +250,6 @@ export default function EventoScreen() {
   if (!detail) return null;
   const { event, batches } = detail;
   const gateLink = event.slug ? `${siteUrl}/p/${event.slug}` : null;
-  const query = search.trim().toLowerCase();
-  const filteredCheckins = query
-    ? detail.checkins.filter((item) =>
-        `${item.code} ${item.holder} ${item.ticket}`.toLowerCase().includes(query)
-      )
-    : detail.checkins;
-  const historyPages = Math.max(1, Math.ceil(filteredCheckins.length / HISTORY_PAGE_SIZE));
-  const currentHistoryPage = Math.min(historyPage, historyPages - 1);
-  const pagedCheckins = filteredCheckins.slice(
-    currentHistoryPage * HISTORY_PAGE_SIZE,
-    currentHistoryPage * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE
-  );
   const validatedPct = detail.sold > 0 ? (detail.validated / detail.sold) * 100 : 0;
   const validatedPctLabel =
     validatedPct === 0 ? '0%' : validatedPct < 10 ? `${validatedPct.toFixed(1)}%` : `${Math.round(validatedPct)}%`;
@@ -316,13 +266,18 @@ export default function EventoScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          section === 'financeiro' && !finance && styles.contentFill,
+        ]}
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
+              setReloadKey((value) => value + 1);
               void load(true);
               if (section === 'financeiro') void loadFinance(true);
             }}
@@ -341,39 +296,65 @@ export default function EventoScreen() {
 
         <View style={styles.stats}>
           <Stat label="Vendidos" value={String(detail.sold)} />
-          <Stat label="No lote" value={String(detail.quantity)} />
+          <Stat label="Cortesias" value={String(detail.courtesy)} />
           <Stat label="Validados" value={String(detail.validated)} />
         </View>
 
-        <View style={styles.tabs}>
-          {(
-            [
-              ['resumo', 'Resumo'],
-              ['portaria', 'Portaria'],
-              ['historico', 'Validação'],
-              ['financeiro', 'Financeiro'],
-            ] as const
-          ).map(([key, label]) => (
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabs}
+          contentContainerStyle={styles.tabsInner}
+        >
+          {EVENT_TABS.map((tab) => (
             <Pressable
-              key={key}
-              onPress={() => setSection(key)}
-              style={[styles.tab, section === key && styles.tabOn]}
+              key={tab.key}
+              onPress={() => setSection(tab.key)}
+              style={[styles.tab, section === tab.key && styles.tabOn]}
             >
-              <Text style={[styles.tabText, section === key && styles.tabTextOn]}>{label}</Text>
+              <Text style={[styles.tabText, section === tab.key && styles.tabTextOn]} numberOfLines={1}>
+                {tab.label}
+              </Text>
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
 
-        {section === 'resumo' ? (
+        {section === 'lotes' ? (
           <View style={styles.block}>
-            <Text style={styles.section}>Lotes</Text>
+            <Pressable
+              onPress={() => {
+                setEditingBatch(null);
+                setNewBatchOpen(true);
+              }}
+              style={({ pressed }) => [styles.newLotBtn, pressed && styles.pressed]}
+            >
+              <Ionicons name="add" size={18} color={colors.loginText} />
+              <Text style={styles.newLotText}>Novo lote</Text>
+            </Pressable>
             {batches.length === 0 ? <Text style={styles.empty}>Nenhum lote cadastrado.</Text> : null}
             {batches.map((batch) => {
               const soldOut = batch.sold >= batch.quantity && batch.quantity > 0;
+              const genderLabel =
+                batch.gender === 'masculino'
+                  ? 'Masculino'
+                  : batch.gender === 'feminino'
+                    ? 'Feminino'
+                    : null;
               return (
                 <View key={batch.id} style={styles.lot}>
                   <View style={styles.lotTop}>
-                    <Text style={styles.lotName}>{batch.name}</Text>
+                    <Text style={styles.lotName}>{batchTicketName(batch)}</Text>
+                    <Pressable
+                      onPress={() => {
+                        setEditingBatch(batch);
+                        setNewBatchOpen(true);
+                      }}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.lotEdit, pressed && styles.pressed]}
+                    >
+                      <Ionicons name="pencil" size={15} color={colors.blue} />
+                    </Pressable>
                     <Text style={[styles.lotBadge, soldOut ? styles.lotSoldOut : batch.active === false ? styles.lotOff : styles.lotOn]}>
                       {soldOut ? 'Esgotado' : batch.active === false ? 'Pausado' : 'Ativo / À venda'}
                     </Text>
@@ -381,25 +362,11 @@ export default function EventoScreen() {
                   {batch.sector ? <Text style={styles.lotMeta}>{batch.sector}</Text> : null}
                   <Text style={styles.lotMeta}>
                     {formatBRL(batch.price)} · {batch.sold}/{batch.quantity} vendidos
+                    {genderLabel ? ` · ${genderLabel}` : ''}
                   </Text>
                 </View>
               );
             })}
-
-            <Text style={[styles.section, styles.sectionSpaced]}>Painel</Text>
-            <Row icon="ticket-outline" label="Portaria" onPress={() => setSection('portaria')} />
-            <Row icon="time-outline" label="Histórico de validação" onPress={() => setSection('historico')} />
-            <Row icon="cash-outline" label="Financeiro" onPress={() => setSection('financeiro')} />
-            <Row
-              icon="create-outline"
-              label="Editar evento no site"
-              onPress={() => void Linking.openURL(`${siteUrl}/producer/eventos/${event.id}`)}
-            />
-            <Row
-              icon="document-text-outline"
-              label="Termos de uso"
-              onPress={() => void Linking.openURL(`${siteUrl}/legal/termos`)}
-            />
           </View>
         ) : null}
 
@@ -448,8 +415,20 @@ export default function EventoScreen() {
         {section === 'historico' ? (
           <View style={styles.historyCard}>
             <View style={styles.historyTitleRow}>
-              <Ionicons name="time-outline" size={18} color={colors.blue} />
-              <Text style={styles.historyTitle}>Histórico de validações</Text>
+              <View style={styles.historyTitleGroup}>
+                <Ionicons name="time-outline" size={18} color={colors.blue} />
+                <Text style={styles.historyTitle}>Histórico de validações</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setRefreshing(true);
+                  void load(true);
+                }}
+                style={({ pressed }) => [styles.refreshBtn, pressed && styles.pressed]}
+              >
+                <Ionicons name="refresh" size={16} color={colors.text} />
+                <Text style={styles.refreshText}>Atualizar</Text>
+              </Pressable>
             </View>
             <Text style={styles.historyEvent}>{event.name}</Text>
 
@@ -464,111 +443,14 @@ export default function EventoScreen() {
                 <View style={[styles.progressFill, { width: `${validatedBar}%` }]} />
               </View>
             </View>
-
-            <View style={styles.searchRow}>
-              <View style={styles.searchBox}>
-                <Ionicons name="search" size={16} color={colors.muted} />
-                <TextInput
-                  value={search}
-                  onChangeText={(value) => {
-                    setSearch(value);
-                    setHistoryPage(0);
-                  }}
-                  placeholder="Buscar código, nome..."
-                  placeholderTextColor="rgba(255,255,255,0.32)"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={styles.searchInput}
-                />
-              </View>
-              <Pressable
-                onPress={() => {
-                  setRefreshing(true);
-                  void load(true);
-                }}
-                style={({ pressed }) => [styles.refreshBtn, pressed && styles.pressed]}
-              >
-                <Ionicons name="refresh" size={16} color={colors.text} />
-                <Text style={styles.refreshText}>Atualizar</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.tableHead}>
-              <Text style={[styles.th, styles.colWhen]}>Data/Hora</Text>
-              <Text style={[styles.th, styles.colCode]}>Código</Text>
-              <Text style={[styles.th, styles.colHolder]}>Titular</Text>
-              <Text style={[styles.th, styles.colTicket]}>Ingresso</Text>
-            </View>
-
-            {filteredCheckins.length === 0 ? (
-              <Text style={styles.empty}>
-                {detail.checkins.length === 0
-                  ? 'Nenhum ingresso validado ainda.'
-                  : 'Nenhum resultado para essa busca.'}
-              </Text>
-            ) : (
-              pagedCheckins.map((item) => (
-                <View key={item.id} style={styles.tableRow}>
-                  <Text style={[styles.td, styles.colWhen]}>{formatCheckinAt(item.at) || '—'}</Text>
-                  <Text style={[styles.td, styles.tdCode, styles.colCode]} numberOfLines={1}>
-                    {item.code || '—'}
-                  </Text>
-                  <Text style={[styles.td, styles.colHolder]} numberOfLines={1}>
-                    {item.holder}
-                  </Text>
-                  <Text style={[styles.td, styles.colTicket]} numberOfLines={2}>
-                    {item.ticket}
-                  </Text>
-                </View>
-              ))
-            )}
-
-            <View style={styles.pager}>
-              <Text style={styles.pageHint}>
-                Página {currentHistoryPage + 1} de {historyPages} · {filteredCheckins.length}{' '}
-                {filteredCheckins.length === 1 ? 'resultado' : 'resultados'}
-              </Text>
-              <View style={styles.pagerBtns}>
-                <Pressable
-                  onPress={() => setHistoryPage(currentHistoryPage - 1)}
-                  disabled={currentHistoryPage === 0}
-                  style={({ pressed }) => [
-                    styles.pagerBtn,
-                    currentHistoryPage === 0 && styles.pagerBtnOff,
-                    pressed && currentHistoryPage > 0 && styles.pressed,
-                  ]}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={16}
-                    color={currentHistoryPage === 0 ? 'rgba(255,255,255,0.28)' : colors.text}
-                  />
-                </Pressable>
-                <Pressable
-                  onPress={() => setHistoryPage(currentHistoryPage + 1)}
-                  disabled={currentHistoryPage >= historyPages - 1}
-                  style={({ pressed }) => [
-                    styles.pagerBtn,
-                    currentHistoryPage >= historyPages - 1 && styles.pagerBtnOff,
-                    pressed && currentHistoryPage < historyPages - 1 && styles.pressed,
-                  ]}
-                >
-                  <Ionicons
-                    name="chevron-forward"
-                    size={16}
-                    color={currentHistoryPage >= historyPages - 1 ? 'rgba(255,255,255,0.28)' : colors.text}
-                  />
-                </Pressable>
-              </View>
-            </View>
           </View>
         ) : null}
 
         {section === 'financeiro' ? (
-          <View style={styles.block}>
+          <View style={[styles.block, !finance && styles.blockFill]}>
             {financeBusy && !finance ? (
               <View style={styles.financeBoot}>
-                <Loader />
+                <Loader size={148} />
               </View>
             ) : financeError && !finance ? (
               <Text style={styles.empty}>{financeError}</Text>
@@ -620,6 +502,14 @@ export default function EventoScreen() {
                     }`}
                     tone="coupon"
                   />
+                  <Kpi
+                    label="Estornos"
+                    value={formatBRL(finance.totals.cancelledAmount)}
+                    hint={`${finance.totals.cancelledTickets} ${
+                      finance.totals.cancelledTickets === 1 ? 'ingresso' : 'ingressos'
+                    }`}
+                    tone="danger"
+                  />
                   <Kpi label="Bruto" value={formatBRL(finance.totals.gross)} />
                   <Kpi
                     label="Taxas"
@@ -632,86 +522,52 @@ export default function EventoScreen() {
                   />
                   <Kpi label="Líquido" value={formatBRL(finance.totals.net)} tone="net" />
                 </View>
-
-                <Text style={[styles.section, styles.sectionSpaced]}>Compras</Text>
-                {finance.purchases.length === 0 ? (
-                  <Text style={styles.empty}>Nenhum ingresso emitido.</Text>
-                ) : (
-                  finance.purchases
-                    .slice(
-                      financePage * FINANCE_PAGE_SIZE,
-                      financePage * FINANCE_PAGE_SIZE + FINANCE_PAGE_SIZE
-                    )
-                    .map((item) => (
-                      <PurchaseCard
-                        key={item.key}
-                        item={item}
-                        producerMode={finance.producerMode}
-                      />
-                    ))
-                )}
-                {finance.purchases.length > FINANCE_PAGE_SIZE ? (
-                  <View style={styles.pager}>
-                    <Text style={styles.pageHint}>
-                      {financePage * FINANCE_PAGE_SIZE + 1}–
-                      {Math.min((financePage + 1) * FINANCE_PAGE_SIZE, finance.purchases.length)} de{' '}
-                      {finance.purchases.length}
-                    </Text>
-                    <View style={styles.pagerBtns}>
-                      <Pressable
-                        disabled={financePage === 0}
-                        onPress={() => setFinancePage((page) => Math.max(0, page - 1))}
-                        style={({ pressed }) => [
-                          styles.pagerBtn,
-                          financePage === 0 && styles.pagerBtnOff,
-                          pressed && financePage > 0 && styles.pressed,
-                        ]}
-                      >
-                        <Ionicons
-                          name="chevron-back"
-                          size={16}
-                          color={financePage === 0 ? 'rgba(255,255,255,0.28)' : colors.text}
-                        />
-                      </Pressable>
-                      <Pressable
-                        disabled={
-                          financePage >= Math.ceil(finance.purchases.length / FINANCE_PAGE_SIZE) - 1
-                        }
-                        onPress={() =>
-                          setFinancePage((page) =>
-                            Math.min(
-                              Math.ceil(finance.purchases.length / FINANCE_PAGE_SIZE) - 1,
-                              page + 1
-                            )
-                          )
-                        }
-                        style={({ pressed }) => [
-                          styles.pagerBtn,
-                          financePage >= Math.ceil(finance.purchases.length / FINANCE_PAGE_SIZE) - 1 &&
-                            styles.pagerBtnOff,
-                          pressed &&
-                            financePage < Math.ceil(finance.purchases.length / FINANCE_PAGE_SIZE) - 1 &&
-                            styles.pressed,
-                        ]}
-                      >
-                        <Ionicons
-                          name="chevron-forward"
-                          size={16}
-                          color={
-                            financePage >= Math.ceil(finance.purchases.length / FINANCE_PAGE_SIZE) - 1
-                              ? 'rgba(255,255,255,0.28)'
-                              : colors.text
-                          }
-                        />
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : null}
+                <Text style={styles.financeHint}>
+                  Cada compra, cupom e estorno ficam detalhados no financeiro do site.
+                </Text>
               </>
             ) : (
               <Text style={styles.empty}>Nenhum dado financeiro neste evento.</Text>
             )}
           </View>
+        ) : null}
+
+        {section === 'retiradas' ? (
+          <RetiradasSection
+            eventId={event.id}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2200);
+            }}
+          />
+        ) : null}
+
+        {section === 'estornos' ? (
+          <EstornosSection
+            eventId={event.id}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+          />
+        ) : null}
+
+        {section === 'termos' ? <TermosSection eventId={event.id} nonce={reloadKey} /> : null}
+
+        {section === 'pdv' ? (
+          <PdvSection
+            nonce={reloadKey}
+            onCopy={(value, message) => void copyText(value, message)}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+          />
         ) : null}
       </ScrollView>
       {toast ? (
@@ -719,6 +575,24 @@ export default function EventoScreen() {
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       ) : null}
+      <NewBatchModal
+        visible={newBatchOpen}
+        eventId={event.id}
+        batches={batches}
+        batch={editingBatch}
+        onClose={() => {
+          setNewBatchOpen(false);
+          setEditingBatch(null);
+        }}
+        onSaved={(created) => {
+          setNewBatchOpen(false);
+          setEditingBatch(null);
+          void load(true);
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          setToast(created ? 'Lote criado' : 'Lote atualizado');
+          toastTimer.current = setTimeout(() => setToast(null), 2200);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -760,6 +634,12 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
     paddingBottom: 32,
+  },
+  scroll: {
+    flex: 1,
+  },
+  contentFill: {
+    flexGrow: 1,
   },
   banner: {
     width: '100%',
@@ -809,17 +689,23 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   tabs: {
+    marginTop: 18,
+    flexGrow: 0,
+    marginHorizontal: -16,
+  },
+  tabsInner: {
     flexDirection: 'row',
     gap: 6,
-    marginTop: 18,
+    paddingHorizontal: 16,
   },
   tab: {
-    flex: 1,
     height: 36,
+    paddingHorizontal: 14,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
+    flexShrink: 0,
   },
   tabOn: {
     backgroundColor: colors.blue,
@@ -834,6 +720,24 @@ const styles = StyleSheet.create({
   },
   block: {
     marginTop: 18,
+  },
+  blockFill: {
+    flex: 1,
+  },
+  newLotBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.blue,
+    borderRadius: 12,
+    minHeight: 44,
+    marginBottom: 14,
+  },
+  newLotText: {
+    color: colors.loginText,
+    fontSize: 14,
+    fontWeight: '700',
   },
   section: {
     color: colors.text,
@@ -879,6 +783,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
     flex: 1,
+  },
+  lotEdit: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,123,255,0.14)',
   },
   lotBadge: {
     fontSize: 10,
@@ -1000,12 +912,21 @@ const styles = StyleSheet.create({
   historyTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+  },
+  historyTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
   },
   historyTitle: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
+    flexShrink: 1,
   },
   historyEvent: {
     color: colors.muted,
@@ -1048,37 +969,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.blue,
   },
-  searchRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 12,
-  },
-  searchBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    height: 42,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  searchInput: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 14,
-    paddingVertical: 0,
-  },
   refreshBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 42,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    height: 36,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -1087,67 +984,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
     fontWeight: '600',
-  },
-  tableHead: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.10)',
-  },
-  tableRow: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  th: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  td: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  tdCode: {
-    color: colors.blue,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  colWhen: { flex: 1.15 },
-  colCode: { flex: 1.25 },
-  colHolder: { flex: 0.9 },
-  colTicket: { flex: 1.1 },
-  pageHint: {
-    color: colors.muted,
-    fontSize: 12,
-    flex: 1,
-  },
-  pager: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  pagerBtns: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  pagerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  pagerBtnOff: {
-    opacity: 0.45,
   },
   moneyBox: {
     marginTop: 12,
@@ -1168,7 +1004,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   financeBoot: {
-    minHeight: 180,
+    flex: 1,
+    minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1260,6 +1097,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,123,255,0.12)',
     borderColor: 'rgba(0,123,255,0.35)',
   },
+  kpiDanger: {
+    backgroundColor: 'rgba(255,92,122,0.10)',
+    borderColor: 'rgba(255,92,122,0.28)',
+  },
   kpiLabel: {
     color: colors.muted,
     fontSize: 10,
@@ -1287,83 +1128,21 @@ const styles = StyleSheet.create({
   kpiNetText: {
     color: colors.blue,
   },
-  purchase: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
+  kpiDangerText: {
+    color: colors.danger,
   },
-  purchaseCoupon: {
-    backgroundColor: 'rgba(61,220,151,0.08)',
-    borderColor: 'rgba(61,220,151,0.22)',
+  kpiDangerHint: {
+    color: 'rgba(255,92,122,0.78)',
   },
-  purchaseCancelled: {
-    backgroundColor: 'rgba(255,92,122,0.08)',
-    borderColor: 'rgba(255,92,122,0.22)',
-  },
-  purchaseTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  purchaseLeft: {
-    flex: 1,
-    minWidth: 0,
-  },
-  purchaseRight: {
-    alignItems: 'flex-end',
-  },
-  purchaseCode: {
-    color: colors.blue,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  financeHint: {
+    color: colors.muted,
     fontSize: 12,
-    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 12,
   },
   purchaseMeta: {
     color: colors.muted,
     fontSize: 11,
     marginTop: 3,
-  },
-  purchaseNet: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  purchaseBuyer: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  purchaseRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 8,
-  },
-  purchasePay: {
-    color: colors.muted,
-    fontSize: 12,
-    flex: 1,
-  },
-  purchaseCourtesy: {
-    color: '#c084fc',
-  },
-  purchaseStrike: {
-    textDecorationLine: 'line-through',
-  },
-  purchaseFees: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 6,
-  },
-  purchaseFee: {
-    color: colors.muted,
-    fontSize: 11,
   },
 });
