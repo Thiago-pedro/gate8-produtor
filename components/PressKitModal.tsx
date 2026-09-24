@@ -2,24 +2,32 @@ import { Ionicons } from '@expo/vector-icons';
 import { Asset } from 'expo-asset';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Sharing from 'expo-sharing';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '@/constants/theme';
 
-const LOGO = require('../assets/images/logo-gate8.png');
-const LOGO_RATIO = 5.4;
+const PRESSKIT = require('../assets/presskit/presskit.png');
+const KIT_BLUE = '#738FC1';
+
+const LOGOS = [
+  { id: 'original', label: 'Original', source: require('../assets/presskit/logo-original.png') },
+  { id: 'preto', label: 'Preto', source: require('../assets/presskit/logo-preto.png') },
+  { id: 'branco', label: 'Branco', source: require('../assets/presskit/logo-branco.png') },
+  { id: 'azul', label: 'Azul', source: require('../assets/presskit/logo-azul.png') },
+] as const;
 
 type PressKitModalProps = {
   visible: boolean;
@@ -27,359 +35,180 @@ type PressKitModalProps = {
 };
 
 export function PressKitModal({ visible, onClose }: PressKitModalProps) {
-  const [downloading, setDownloading] = useState(false);
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const [downloading, setDownloading] = useState<string | null>(null);
 
-  async function downloadLogo() {
+  const pageSize = useMemo(() => {
+    const asset = Image.resolveAssetSource(PRESSKIT);
+    const pageWidth = windowWidth;
+    const pageHeight = pageWidth * (asset.height / asset.width);
+    const tileWidth = (windowWidth - 48) / 2;
+    return { pageWidth, pageHeight, tileWidth };
+  }, [windowWidth]);
+
+  async function shareLogo(logo: (typeof LOGOS)[number]) {
     if (downloading) return;
-    setDownloading(true);
+    setDownloading(logo.id);
     try {
-      const asset = Asset.fromModule(LOGO);
+      const asset = Asset.fromModule(logo.source);
       await asset.downloadAsync();
       const uri = asset.localUri ?? asset.uri;
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'image/png',
-          dialogTitle: 'Logo oficial Gate8',
-          UTI: 'public.png',
-        });
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Download indisponível', 'Não foi possível abrir o logo neste aparelho.');
         return;
       }
-      Alert.alert('Download indisponível', 'Não foi possível abrir o logo neste aparelho.');
+      await Sharing.shareAsync(uri, {
+        mimeType: 'image/png',
+        dialogTitle: `Logo Gate8 ${logo.label}`,
+        UTI: 'public.png',
+      });
     } catch {
       Alert.alert('Não foi possível baixar o logo', 'Tente de novo em instantes.');
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.root}>
+        <SafeAreaView style={styles.safe} edges={['top']}>
+          <View style={styles.toolbar}>
+            <Text style={styles.toolbarTitle}>Kit divulgação</Text>
+            <Pressable onPress={onClose} hitSlop={12} style={({ pressed }) => pressed && styles.pressed}>
+              <Ionicons name="close" size={26} color="#111111" />
+            </Pressable>
+          </View>
+
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+            ]}
+            showsVerticalScrollIndicator
+            bounces={false}
           >
-            <LinearGradient colors={['#007BFF', '#0056b3']} style={styles.hero}>
-              <View style={styles.heroTitleRow}>
-                <Ionicons name="ticket-outline" size={26} color="#fff" />
-                <Text style={styles.heroTitle}>Presskit</Text>
+            <Image
+              source={PRESSKIT}
+              accessibilityLabel="Kit divulgação Gate8"
+              resizeMode="contain"
+              style={{ width: pageSize.pageWidth, height: pageSize.pageHeight }}
+            />
+
+            <View style={styles.downloadBlock}>
+              <Text style={styles.downloadTitle}>Fazer Download</Text>
+              <Text style={styles.downloadHint}>Escolha a cor do logo oficial.</Text>
+              <View style={styles.grid}>
+                {LOGOS.map((logo) => {
+                  const busy = downloading === logo.id;
+                  return (
+                    <Pressable
+                      key={logo.id}
+                      onPress={() => void shareLogo(logo)}
+                      disabled={Boolean(downloading)}
+                      accessibilityLabel={`Download logo ${logo.label}`}
+                      style={({ pressed }) => [{ width: pageSize.tileWidth }, pressed && styles.pressed]}
+                    >
+                      <View style={styles.shadow}>
+                        <LinearGradient
+                          colors={['#4da3ff', '#007BFF', '#0056b3', '#007BFF', '#4da3ff']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.border}
+                        >
+                          <View style={styles.inner}>
+                            {busy ? (
+                              <ActivityIndicator color={colors.blue} />
+                            ) : (
+                              <Image source={logo.source} resizeMode="contain" style={styles.tileLogo} />
+                            )}
+                          </View>
+                        </LinearGradient>
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
-              <Text style={styles.heroSubtitle}>Manual de uso da marca</Text>
-              <Text style={styles.heroCopy}>
-                Utilize nosso logo no seu material para promover seu evento!
-              </Text>
-            </LinearGradient>
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Uso de cores</Text>
-              <Text style={styles.body}>
-                Nunca altere a cor do logo, sempre use as cores oficiais da Gate8.
-              </Text>
-              <Text style={styles.caption}>Uso de cores permitido</Text>
-              <View style={styles.colorRows}>
-                <AllowedColorRow bg="#000000" />
-                <AllowedColorRow bg={colors.blue} />
-                <AllowedColorRow bg="#050d1f" />
-              </View>
-              <View style={styles.compareRow}>
-                <ExampleBlock ok label="Certo">
-                  <BrandLogo width={118} height={22} />
-                </ExampleBlock>
-                <ExampleBlock ok={false} label="Errado">
-                  <BrandLogo width={118} height={22} tint="#e53935" />
-                </ExampleBlock>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Redimensionamento</Text>
-              <Text style={styles.body}>
-                Cuidado ao aumentar ou diminuir de tamanho para não distorcer o logo.
-              </Text>
-              <View style={styles.resizeRow}>
-                <ExampleBlock ok={false} label="Errado">
-                  <BrandLogo width={92} height={28} resizeMode="stretch" />
-                </ExampleBlock>
-                <ExampleBlock ok={false} label="Errado">
-                  <BrandLogo width={64} height={32} resizeMode="stretch" />
-                </ExampleBlock>
-                <ExampleBlock ok={false} label="Errado">
-                  <BrandLogo width={88} height={10} resizeMode="stretch" />
-                </ExampleBlock>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Logo legível</Text>
-              <Text style={styles.body}>
-                Sempre confira se o logo da Gate8 está com boa qualidade e legível.
-              </Text>
-              <View style={styles.compareRow}>
-                <ExampleBlock ok label="Certo">
-                  <BrandLogo width={124} height={23} />
-                </ExampleBlock>
-                <ExampleBlock ok={false} label="Errado">
-                  <Image
-                    source={LOGO}
-                    accessibilityLabel="Logo ilegível"
-                    resizeMode="contain"
-                    style={styles.blurryLogo}
-                  />
-                </ExampleBlock>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.section}>
-              <Text style={styles.heading}>Download logo Gate8</Text>
-              <Text style={styles.body}>Clique no botão para obter nosso logo oficial.</Text>
-              <Pressable
-                onPress={() => void downloadLogo()}
-                disabled={downloading}
-                style={({ pressed }) => [styles.downloadBtn, pressed && styles.pressed]}
-              >
-                {downloading ? (
-                  <ActivityIndicator color={colors.loginText} />
-                ) : (
-                  <Text style={styles.downloadText}>Fazer Download</Text>
-                )}
-              </Pressable>
             </View>
           </ScrollView>
-
-          <Pressable onPress={onClose} hitSlop={10} style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}>
-            <Text style={styles.closeText}>Fechar</Text>
-          </Pressable>
-        </View>
+        </SafeAreaView>
       </View>
     </Modal>
   );
 }
 
-function BrandLogo({
-  width,
-  height = width / LOGO_RATIO,
-  tint,
-  resizeMode = 'contain',
-}: {
-  width: number;
-  height?: number;
-  tint?: string;
-  resizeMode?: 'contain' | 'stretch';
-}) {
-  return (
-    <Image
-      source={LOGO}
-      accessibilityLabel="Gate8"
-      resizeMode={resizeMode}
-      style={{ width, height, tintColor: tint }}
-    />
-  );
-}
-
-function AllowedColorRow({ bg }: { bg: string }) {
-  return (
-    <View style={styles.allowedRow}>
-      <View style={[styles.allowedCell, styles.allowedLight]}>
-        <BrandLogo width={108} height={20} />
-      </View>
-      <View style={[styles.allowedCell, { backgroundColor: bg }]}>
-        <BrandLogo width={108} height={20} />
-      </View>
-    </View>
-  );
-}
-
-function ExampleBlock({
-  ok,
-  label,
-  children,
-}: {
-  ok: boolean;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <View style={styles.example}>
-      <View style={styles.exampleLabelRow}>
-        <Ionicons
-          name={ok ? 'checkmark' : 'close'}
-          size={14}
-          color={ok ? '#1aa05a' : '#e53935'}
-        />
-        <Text style={[styles.exampleLabel, { color: ok ? '#1aa05a' : '#e53935' }]}>{label}</Text>
-      </View>
-      <View style={styles.exampleBox}>{children}</View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  overlay: {
+  root: {
     flex: 1,
-    backgroundColor: 'rgba(5,13,31,0.78)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 32,
+    backgroundColor: KIT_BLUE,
   },
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    maxHeight: Dimensions.get('window').height * 0.9,
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    overflow: 'hidden',
+  safe: {
+    flex: 1,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  toolbarTitle: {
+    color: '#111111',
+    fontSize: 18,
+    fontWeight: '800',
   },
   scroll: {
-    maxHeight: Dimensions.get('window').height * 0.74,
+    flex: 1,
   },
   scrollContent: {
-    paddingBottom: 8,
+    flexGrow: 0,
   },
-  hero: {
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 24,
+  downloadBlock: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  heroTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  heroTitle: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  heroSubtitle: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  heroCopy: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
-  },
-  section: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 8,
-  },
-  heading: {
-    color: '#1a1a1a',
+  downloadTitle: {
+    color: '#111111',
     fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontWeight: '800',
+    marginBottom: 4,
   },
-  body: {
-    color: '#5b5b5b',
+  downloadHint: {
+    color: '#1a1a1a',
     fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: 14,
+    opacity: 0.78,
   },
-  caption: {
-    color: '#8a8a8a',
-    fontSize: 11,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  colorRows: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  allowedRow: {
+  grid: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  allowedCell: {
-    flex: 1,
-    height: 44,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  allowedLight: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#ececec',
-  },
-  compareRow: {
-    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 16,
   },
-  resizeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
+  shadow: {
+    shadowColor: colors.blue,
+    shadowOpacity: 0.85,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 18,
   },
-  example: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  exampleLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 8,
-  },
-  exampleLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  exampleBox: {
-    minHeight: 36,
-    justifyContent: 'center',
-  },
-  blurryLogo: {
-    width: 90,
-    height: 16,
-    opacity: 0.38,
-    transform: [{ scale: 0.72 }],
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#ececec',
-    marginHorizontal: 20,
-    marginTop: 10,
-  },
-  downloadBtn: {
-    alignSelf: 'flex-start',
-    height: 44,
-    paddingHorizontal: 22,
+  border: {
     borderRadius: 22,
-    backgroundColor: colors.blue,
+    padding: 1.6,
+  },
+  inner: {
+    backgroundColor: KIT_BLUE,
+    borderRadius: 20.5,
+    minHeight: 104,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 160,
-    marginTop: 4,
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 22,
   },
-  downloadText: {
-    color: colors.loginText,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  closeBtn: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    marginBottom: 6,
-  },
-  closeText: {
-    color: '#6b6b6b',
-    fontWeight: '600',
-    fontSize: 14,
+  tileLogo: {
+    width: '100%',
+    height: 34,
   },
   pressed: {
     opacity: 0.86,
