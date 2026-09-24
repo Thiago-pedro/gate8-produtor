@@ -8,7 +8,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
-import { PdvSection } from '@/components/PdvSection';
 import { RetiradasSection } from '@/components/RetiradasSection';
 import { SiteFooter } from '@/components/SiteFooter';
 import { TermosSection } from '@/components/TermosSection';
@@ -29,8 +28,7 @@ type EventSection =
   | 'financeiro'
   | 'retiradas'
   | 'estornos'
-  | 'termos'
-  | 'pdv';
+  | 'termos';
 
 const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'estornos', label: 'Estornos' },
@@ -39,7 +37,6 @@ const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'portaria', label: 'Portaria' },
   { key: 'retiradas', label: 'Retiradas' },
   { key: 'termos', label: 'Termos de uso' },
-  { key: 'pdv', label: 'Terminal PDV' },
   { key: 'historico', label: 'Validação' },
 ];
 
@@ -559,17 +556,6 @@ export default function EventoScreen() {
 
         {section === 'termos' ? <TermosSection eventId={event.id} nonce={reloadKey} /> : null}
 
-        {section === 'pdv' ? (
-          <PdvSection
-            nonce={reloadKey}
-            onCopy={(value, message) => void copyText(value, message)}
-            onToast={(message) => {
-              if (toastTimer.current) clearTimeout(toastTimer.current);
-              setToast(message);
-              toastTimer.current = setTimeout(() => setToast(null), 2800);
-            }}
-          />
-        ) : null}
         <SiteFooter />
       </ScrollView>
       {toast ? (
