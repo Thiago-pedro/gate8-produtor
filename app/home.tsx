@@ -1,23 +1,32 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EventArt } from '@/components/EventArt';
 import { NeonCard } from '@/components/NeonCard';
 import { Loader } from '@/components/Loader';
 import { SiteFooter } from '@/components/SiteFooter';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
-import { fetchProducerEvents, type ProducerEvent } from '@/lib/events';
+import { fetchProducerEvents, isOpenEvent, type ProducerEvent } from '@/lib/events';
 import { formatEventDate } from '@/lib/format';
 import { useProducer } from '@/lib/producer-context';
 
 function formatDate(value: string | null) {
   return formatEventDate(value);
 }
+
+type EventFilter = 'all' | 'active' | 'ended';
+
+const FILTERS: { key: EventFilter; label: string }[] = [
+  { key: 'all', label: 'Todas as festas' },
+  { key: 'active', label: 'Ativas' },
+  { key: 'ended', label: 'Encerradas' },
+];
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -28,6 +37,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<EventFilter>('all');
 
   async function leaveAccount() {
     setLeaveOpen(false);
@@ -61,6 +71,21 @@ export default function HomeScreen() {
   useEffect(() => {
     if (user && status === 'producer') void load();
   }, [load, status, user]);
+
+  const visible = useMemo(() => {
+    if (filter === 'active') return events.filter(isOpenEvent);
+    if (filter === 'ended') return events.filter((event) => !isOpenEvent(event));
+    return events;
+  }, [events, filter]);
+
+  const emptyMessage =
+    events.length === 0
+      ? 'Muito calmo,\nTá faltando festa por aqui! 🎉\nCrie seu evento.'
+      : filter === 'active'
+        ? 'Nenhuma festa ativa por aqui.'
+        : filter === 'ended'
+          ? 'Nenhuma festa encerrada por aqui.'
+          : 'Muito calmo,\nTá faltando festa por aqui! 🎉\nCrie seu evento.';
 
   if (loading || producerLoading || !user || status !== 'producer') {
     return (
@@ -97,6 +122,21 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.filters}>
+        {FILTERS.map((item) => {
+          const on = filter === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => setFilter(item.key)}
+              style={[styles.filterChip, on && styles.filterChipOn]}
+            >
+              <Text style={[styles.filterText, on && styles.filterTextOn]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.list}
         refreshControl={
@@ -112,20 +152,18 @@ export default function HomeScreen() {
       >
         {busy ? <Loader screen /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {!busy && !error && events.length === 0 ? (
-          <Text style={styles.empty}>Nenhum evento por aqui ainda. Crie o primeiro.</Text>
+        {!busy && !error && visible.length === 0 ? (
+          <Text style={styles.empty}>{emptyMessage}</Text>
         ) : null}
-        {events.map((event) => (
+        {visible.map((event) => {
+          const ended = !isOpenEvent(event);
+          return (
           <Pressable
             key={event.id}
             onPress={() => router.push({ pathname: '/evento/[id]', params: { id: event.id } })}
             style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
           >
-            {event.banner_url ? (
-              <Image source={{ uri: event.banner_url }} style={styles.banner} />
-            ) : (
-              <View style={[styles.banner, styles.bannerEmpty]} />
-            )}
+            <EventArt uri={event.banner_url} ended={ended} height={140} />
             <View style={styles.cardBody}>
               <Text style={styles.eventName} numberOfLines={2}>
                 {event.name}
@@ -142,13 +180,10 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               ) : null}
-              <Text style={styles.sold}>
-                {event.sold} {event.sold === 1 ? 'ingresso vendido' : 'ingressos vendidos'}
-                {event.quantity ? ` · ${event.quantity} no total` : ''}
-              </Text>
             </View>
           </Pressable>
-        ))}
+          );
+        })}
         <SiteFooter />
       </ScrollView>
 
@@ -201,9 +236,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    height: 36,
+    height: 44,
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 19,
+    paddingBottom: 8,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -235,8 +271,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     marginTop: 6,
-    marginBottom: 12,
+    marginBottom: 10,
     gap: 10,
+  },
+  filters: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  filterChip: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterChipOn: {
+    backgroundColor: colors.blue,
+  },
+  filterText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  filterTextOn: {
+    color: colors.loginText,
   },
   createBtn: {
     flexDirection: 'row',
@@ -266,6 +330,8 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center',
     marginTop: 24,
+    fontSize: 15,
+    lineHeight: 24,
   },
   card: {
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -276,14 +342,6 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.88,
-  },
-  banner: {
-    width: '100%',
-    height: 140,
-    backgroundColor: colors.bgElevated,
-  },
-  bannerEmpty: {
-    backgroundColor: colors.bgElevated,
   },
   cardBody: {
     padding: 14,
@@ -303,12 +361,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     flex: 1,
-  },
-  sold: {
-    color: colors.blue,
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
   },
   modalRoot: {
     flex: 1,

@@ -12,5 +12,7 @@ export function Wordmark({ height = 28 }: { height?: number }) {
 }
 
 const styles = StyleSheet.create({
-  logo: {},
+  logo: {
+    backgroundColor: 'transparent',
+  },
 });

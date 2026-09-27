@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BalancoSection } from '@/components/BalancoSection';
+import { EventArt } from '@/components/EventArt';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
@@ -13,7 +15,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { TermosSection } from '@/components/TermosSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
-import { batchTicketName, fetchProducerEventDetail, type EventBatch, type ProducerEventDetail } from '@/lib/events';
+import { batchTicketName, fetchProducerEventDetail, isOpenEvent, type EventBatch, type ProducerEventDetail } from '@/lib/events';
 import {
   fetchEventFinance,
   type EventFinance,
@@ -28,10 +30,12 @@ type EventSection =
   | 'financeiro'
   | 'retiradas'
   | 'estornos'
+  | 'balanco'
   | 'termos';
 
 const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'estornos', label: 'Estornos' },
+  { key: 'balanco', label: 'Balanço' },
   { key: 'financeiro', label: 'Financeiro' },
   { key: 'lotes', label: 'Lotes' },
   { key: 'portaria', label: 'Portaria' },
@@ -247,6 +251,7 @@ export default function EventoScreen() {
 
   if (!detail) return null;
   const { event, batches } = detail;
+  const ended = !isOpenEvent(event);
   const gateLink = event.slug ? `${siteUrl}/p/${event.slug}` : null;
   const validatedPct = detail.sold > 0 ? (detail.validated / detail.sold) * 100 : 0;
   const validatedPctLabel =
@@ -283,11 +288,7 @@ export default function EventoScreen() {
           />
         }
       >
-        {event.banner_url ? (
-          <Image source={{ uri: event.banner_url }} style={styles.banner} />
-        ) : (
-          <View style={[styles.banner, styles.bannerEmpty]} />
-        )}
+        <EventArt uri={event.banner_url} ended={ended} height={180} style={styles.banner} />
         <Text style={styles.name}>{event.name}</Text>
         <Text style={styles.meta}>{formatEventDateTime(event.event_date)}</Text>
         {event.location ? <Text style={styles.meta}>{event.location}</Text> : null}
@@ -320,19 +321,22 @@ export default function EventoScreen() {
 
         {section === 'lotes' ? (
           <View style={styles.block}>
-            <Pressable
-              onPress={() => {
-                setEditingBatch(null);
-                setNewBatchOpen(true);
-              }}
-              style={({ pressed }) => [styles.newLotBtn, pressed && styles.pressed]}
-            >
-              <Ionicons name="add" size={18} color={colors.loginText} />
-              <Text style={styles.newLotText}>Novo lote</Text>
-            </Pressable>
+            {ended ? null : (
+              <Pressable
+                onPress={() => {
+                  setEditingBatch(null);
+                  setNewBatchOpen(true);
+                }}
+                style={({ pressed }) => [styles.newLotBtn, pressed && styles.pressed]}
+              >
+                <Ionicons name="add" size={18} color={colors.loginText} />
+                <Text style={styles.newLotText}>Novo lote</Text>
+              </Pressable>
+            )}
             {batches.length === 0 ? <Text style={styles.empty}>Nenhum lote cadastrado.</Text> : null}
             {batches.map((batch) => {
-              const soldOut = batch.sold >= batch.quantity && batch.quantity > 0;
+              const soldOut = !ended && batch.sold >= batch.quantity && batch.quantity > 0;
+              const inactive = ended || batch.active === false;
               const genderLabel =
                 batch.gender === 'masculino'
                   ? 'Masculino'
@@ -340,21 +344,28 @@ export default function EventoScreen() {
                     ? 'Feminino'
                     : null;
               return (
-                <View key={batch.id} style={styles.lot}>
+                <View key={batch.id} style={[styles.lot, ended && styles.lotDisabled]}>
                   <View style={styles.lotTop}>
                     <Text style={styles.lotName}>{batchTicketName(batch)}</Text>
-                    <Pressable
-                      onPress={() => {
-                        setEditingBatch(batch);
-                        setNewBatchOpen(true);
-                      }}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.lotEdit, pressed && styles.pressed]}
+                    {ended ? null : (
+                      <Pressable
+                        onPress={() => {
+                          setEditingBatch(batch);
+                          setNewBatchOpen(true);
+                        }}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.lotEdit, pressed && styles.pressed]}
+                      >
+                        <Ionicons name="pencil" size={15} color={colors.blue} />
+                      </Pressable>
+                    )}
+                    <Text
+                      style={[
+                        styles.lotBadge,
+                        soldOut ? styles.lotSoldOut : inactive ? styles.lotOff : styles.lotOn,
+                      ]}
                     >
-                      <Ionicons name="pencil" size={15} color={colors.blue} />
-                    </Pressable>
-                    <Text style={[styles.lotBadge, soldOut ? styles.lotSoldOut : batch.active === false ? styles.lotOff : styles.lotOn]}>
-                      {soldOut ? 'Esgotado' : batch.active === false ? 'Pausado' : 'Ativo / À venda'}
+                      {ended ? 'Desativado' : soldOut ? 'Esgotado' : batch.active === false ? 'Pausado' : 'Ativo / À venda'}
                     </Text>
                   </View>
                   {batch.sector ? <Text style={styles.lotMeta}>{batch.sector}</Text> : null}
@@ -554,6 +565,18 @@ export default function EventoScreen() {
           />
         ) : null}
 
+        {section === 'balanco' ? (
+          <BalancoSection
+            eventId={event.id}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+          />
+        ) : null}
+
         {section === 'termos' ? <TermosSection eventId={event.id} nonce={reloadKey} /> : null}
 
         <SiteFooter />
@@ -597,16 +620,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    height: 36,
+    height: 44,
     marginHorizontal: 8,
-    marginTop: 8,
+    marginTop: 19,
+    paddingBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerSide: {
     width: 32,
-    height: 36,
+    height: 44,
     justifyContent: 'center',
   },
   back: {
@@ -631,14 +655,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   banner: {
-    width: '100%',
-    height: 180,
     borderRadius: 16,
-    backgroundColor: colors.bgElevated,
     marginTop: 12,
-  },
-  bannerEmpty: {
-    backgroundColor: colors.bgElevated,
   },
   name: {
     color: colors.text,
@@ -760,6 +778,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     marginBottom: 8,
+  },
+  lotDisabled: {
+    opacity: 0.55,
   },
   lotTop: {
     flexDirection: 'row',

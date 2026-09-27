@@ -78,7 +78,7 @@ function LoginForm() {
         </Pressable>
         <Pressable onPress={() => router.push('/cadastro')} style={styles.signupWrap}>
           <Text style={styles.signupMuted}>Ainda não é cliente Gate8?</Text>
-          <Text style={styles.signupLink}>Crie sua conta de produtor aqui</Text>
+          <Text style={styles.signupLink}>Quer produzir um evento? Comece aqui!</Text>
         </Pressable>
       </NeonCard>
     </>

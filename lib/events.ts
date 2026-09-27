@@ -264,7 +264,7 @@ const CANCELLED_STATUSES = [
 
 const CANCELLED_IN = CANCELLED_STATUSES.join(',');
 
-function isOpenEvent(event: { is_ended?: boolean | null; status?: string | null }) {
+export function isOpenEvent(event: { is_ended?: boolean | null; status?: string | null }) {
   if (event.is_ended) return false;
   if (event.status === 'closed' || event.status === 'cancelled' || event.status === 'finished') return false;
   return true;
@@ -277,7 +277,7 @@ export async function fetchProducerEvents(userId: string): Promise<ProducerEvent
     )
   );
 
-  const events = rows
+  return rows
     .map((row) => ({
       id: text(row.id),
       name: text(row.name),
@@ -291,29 +291,7 @@ export async function fetchProducerEvents(userId: string): Promise<ProducerEvent
       sold: 0,
       quantity: 0,
     }))
-    .filter(isOpenEvent);
-
-  if (events.length === 0) return [];
-
-  const ids = events.map((event) => event.id).join(',');
-  const batches = asRows(
-    await restOrEmpty(`ticket_batches?select=event_id,sold,quantity&event_id=in.(${ids})`, [])
-  );
-
-  const soldByEvent = new Map<string, { sold: number; quantity: number }>();
-  for (const batch of batches) {
-    const eventId = text(batch.event_id);
-    const current = soldByEvent.get(eventId) ?? { sold: 0, quantity: 0 };
-    current.sold += num(batch.sold);
-    current.quantity += num(batch.quantity);
-    soldByEvent.set(eventId, current);
-  }
-
-  return events.map((event) => ({
-    ...event,
-    sold: soldByEvent.get(event.id)?.sold ?? 0,
-    quantity: soldByEvent.get(event.id)?.quantity ?? event.capacity ?? 0,
-  }));
+    .filter((event) => Boolean(event.id));
 }
 
 export async function fetchProducerEventDetail(eventId: string): Promise<ProducerEventDetail> {
