@@ -1,14 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AuthScreenShell, useAuthKeyboard } from '@/components/AuthScreenShell';
-import { Logo } from '@/components/Logo';
 import { NeonCard } from '@/components/NeonCard';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
+
+const LOGIN_LOGO = require('../assets/images/logo-kit-original.png');
+const LOGIN_LOGO_ASPECT = 1009 / 165;
+const PRODUCER_BLUE = '#0000fe';
 
 function LoginForm() {
   const router = useRouter();
@@ -40,10 +43,18 @@ function LoginForm() {
   return (
     <>
       <View style={[styles.logoWrap, keyboardOpen && styles.logoWrapCompact]}>
-        <Logo height={keyboardOpen ? 40 : 56} centered />
+        <Image
+          accessibilityLabel="Gate8"
+          source={LOGIN_LOGO}
+          style={{
+            height: keyboardOpen ? 40 : 56,
+            width: (keyboardOpen ? 40 : 56) * LOGIN_LOGO_ASPECT,
+          }}
+          resizeMode="contain"
+        />
         <Text style={styles.brand}>PRODUTOR</Text>
       </View>
-      <NeonCard>
+      <NeonCard accent={PRODUCER_BLUE}>
         <Text style={styles.title}>Entrar</Text>
         <Text style={styles.lead}>Entre com seu login de produtor para gerenciar seus eventos</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -105,13 +116,14 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   logoWrap: {
     alignItems: 'center',
+    marginTop: -11,
     marginBottom: 28,
   },
   logoWrapCompact: {
     marginBottom: 16,
   },
   brand: {
-    color: colors.blue,
+    color: PRODUCER_BLUE,
     fontWeight: '800',
     letterSpacing: 4,
     marginTop: 10,

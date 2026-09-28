@@ -6,6 +6,7 @@ import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
+import { CortesiasSection } from '@/components/CortesiasSection';
 import { EventArt } from '@/components/EventArt';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
@@ -25,6 +26,7 @@ import { formatBRL, formatEventDateTime } from '@/lib/format';
 
 type EventSection =
   | 'lotes'
+  | 'cortesias'
   | 'portaria'
   | 'historico'
   | 'financeiro'
@@ -38,6 +40,7 @@ const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'balanco', label: 'Balanço' },
   { key: 'financeiro', label: 'Financeiro' },
   { key: 'lotes', label: 'Lotes' },
+  { key: 'cortesias', label: 'Cortesias' },
   { key: 'portaria', label: 'Portaria' },
   { key: 'retiradas', label: 'Retiradas' },
   { key: 'termos', label: 'Termos de uso' },
@@ -379,6 +382,24 @@ export default function EventoScreen() {
           </View>
         ) : null}
 
+        {section === 'cortesias' ? (
+          <CortesiasSection
+            eventId={event.id}
+            batches={batches}
+            ended={ended}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 4000);
+            }}
+            onIssued={() => {
+              setReloadKey((value) => value + 1);
+              void load(true);
+            }}
+          />
+        ) : null}
+
         {section === 'portaria' ? (
           <View style={styles.block}>
             <Text style={styles.section}>Token da portaria</Text>
@@ -582,8 +603,10 @@ export default function EventoScreen() {
         <SiteFooter />
       </ScrollView>
       {toast ? (
-        <View pointerEvents="none" style={styles.toast}>
-          <Text style={styles.toastText}>{toast}</Text>
+        <View pointerEvents="none" style={styles.toastWrap}>
+          <View style={styles.toast}>
+            <Text style={styles.toastText}>{toast}</Text>
+          </View>
         </View>
       ) : null}
       <NewBatchModal
@@ -892,17 +915,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  toast: {
+  toastWrap: {
     position: 'absolute',
-    left: 24,
-    right: 24,
-    bottom: 28,
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  toast: {
+    width: '100%',
+    maxWidth: 360,
     backgroundColor: '#0b1730',
     borderWidth: 1,
     borderColor: 'rgba(0,123,255,0.45)',
     borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
   },
   toastText: {

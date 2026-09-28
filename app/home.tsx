@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -37,7 +37,8 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<EventFilter>('all');
+  const [filter, setFilter] = useState<EventFilter>('active');
+  const sawList = useRef(false);
 
   async function leaveAccount() {
     setLeaveOpen(false);
@@ -68,9 +69,14 @@ export default function HomeScreen() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (user && status === 'producer') void load();
-  }, [load, status, user]);
+  useFocusEffect(
+    useCallback(() => {
+      if (user && status === 'producer') {
+        void load(sawList.current);
+        sawList.current = true;
+      }
+    }, [load, status, user])
+  );
 
   const visible = useMemo(() => {
     if (filter === 'active') return events.filter(isOpenEvent);
@@ -165,9 +171,16 @@ export default function HomeScreen() {
           >
             <EventArt uri={event.banner_url} ended={ended} height={140} />
             <View style={styles.cardBody}>
-              <Text style={styles.eventName} numberOfLines={2}>
-                {event.name}
-              </Text>
+              <View style={styles.nameRow}>
+                <Text style={styles.eventName} numberOfLines={2}>
+                  {event.name}
+                </Text>
+                {event.is_hidden ? (
+                  <View style={styles.hiddenBadge}>
+                    <Text style={styles.hiddenBadgeText}>Oculto</Text>
+                  </View>
+                ) : null}
+              </View>
               <View style={styles.metaRow}>
                 <Ionicons name="calendar-outline" size={14} color={colors.blue} />
                 <Text style={styles.eventMeta}>{formatDate(event.event_date)}</Text>
@@ -347,10 +360,31 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   eventName: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+  },
+  hiddenBadge: {
+    backgroundColor: 'rgba(0,123,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.45)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  hiddenBadgeText: {
+    color: colors.blue,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   metaRow: {
     flexDirection: 'row',

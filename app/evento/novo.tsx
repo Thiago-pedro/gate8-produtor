@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -151,7 +152,6 @@ export default function NovoEventoScreen() {
   const [map, setMap] = useState<{ uri: string; type: string } | null>(null);
   const [hasTables, setHasTables] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
-  const [status, setStatus] = useState<'draft' | 'published'>('draft');
   const [accepted, setAccepted] = useState(false);
   const [coupon, setCoupon] = useState<EventCouponDraft>(EMPTY_COUPON);
 
@@ -235,7 +235,7 @@ export default function NovoEventoScreen() {
         capacity: capacity ? Number(capacity) : null,
         bannerUrl,
         mapUrl,
-        status,
+        status: 'published',
         hasTables,
         isHidden,
       });
@@ -345,11 +345,11 @@ export default function NovoEventoScreen() {
           {step === 2 ? (
             <View style={styles.gap}>
               <DateTimeField label="Data e hora *" value={eventDate} onChange={setEventDate} />
-              <Text style={styles.label}>Capacidade</Text>
+              <Text style={styles.label}>Capacidade (opcional)</Text>
               <TextInput
                 value={capacity}
                 onChangeText={(value) => setCapacity(value.replace(/\D/g, ''))}
-                placeholder="Quantidade"
+                placeholder="Deixe em branco se não houver limite"
                 placeholderTextColor="rgba(255,255,255,0.32)"
                 keyboardType="number-pad"
                 style={styles.input}
@@ -544,18 +544,6 @@ export default function NovoEventoScreen() {
                   </>
                 ) : null}
               </View>
-              <Text style={styles.label}>Status</Text>
-              <View style={styles.chips}>
-                <Pressable onPress={() => setStatus('draft')} style={[styles.chip, status === 'draft' && styles.chipOn]}>
-                  <Text style={[styles.chipText, status === 'draft' && styles.chipTextOn]}>Rascunho</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setStatus('published')}
-                  style={[styles.chip, status === 'published' && styles.chipOn]}
-                >
-                  <Text style={[styles.chipText, status === 'published' && styles.chipTextOn]}>Publicado</Text>
-                </Pressable>
-              </View>
               <Pressable
                 onPress={() => setAccepted((value) => !value)}
                 style={[styles.termsBox, accepted && styles.termsBoxOn]}
@@ -601,7 +589,7 @@ export default function NovoEventoScreen() {
               disabled={!accepted || busy}
               style={[styles.primaryBtn, (!accepted || busy) && styles.off]}
             >
-              {busy ? <Loader size={36} /> : <Text style={styles.primaryText}>{status === 'published' ? 'Publicar evento' : 'Criar evento'}</Text>}
+              {busy ? <ActivityIndicator color={colors.loginText} /> : <Text style={styles.primaryText}>Criar evento</Text>}
             </Pressable>
           )}
         </View>

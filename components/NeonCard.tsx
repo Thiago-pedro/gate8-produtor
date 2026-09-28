@@ -4,19 +4,54 @@ import { StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { colors } from '@/constants/theme';
 
-export function NeonCard({ children, contentStyle }: { children: ReactNode; contentStyle?: ViewStyle }) {
+function channels(hex: string) {
+  const value = hex.replace('#', '');
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+function rgba(hex: string, alpha: number) {
+  const { r, g, b } = channels(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function mix(hex: string, toward: number, amount: number) {
+  const { r, g, b } = channels(hex);
+  const next = (c: number) => Math.round(c + (toward - c) * amount);
+  return `#${[next(r), next(g), next(b)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function NeonCard({
+  children,
+  contentStyle,
+  accent = colors.blue,
+}: {
+  children: ReactNode;
+  contentStyle?: ViewStyle;
+  accent?: string;
+}) {
+  const glow = rgba(accent, 0.45);
+  const glowSoft = rgba(accent, 0.08);
+  const glowMid = rgba(accent, 0.32);
+  const haze = rgba(accent, 0.16);
+  const light = mix(accent, 255, 0.32);
+  const dark = mix(accent, 0, 0.32);
+
   return (
     <View style={styles.wrap}>
       <LinearGradient
-        colors={['rgba(0,123,255,0.45)', 'rgba(0,123,255,0.08)', 'rgba(0,123,255,0.32)']}
+        colors={[glow, glowSoft, glowMid]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.outerGlow}
       />
-      <View style={styles.midGlow} />
-      <View style={styles.shadow}>
+      <View style={[styles.midGlow, { backgroundColor: haze }]} />
+      <View style={[styles.shadow, { shadowColor: accent }]}>
         <LinearGradient
-          colors={['#4da3ff', '#007BFF', '#0056b3', '#007BFF', '#4da3ff']}
+          colors={[light, accent, dark, accent, light]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.border}
@@ -42,11 +77,9 @@ const styles = StyleSheet.create({
   midGlow: {
     ...StyleSheet.absoluteFill,
     borderRadius: 24,
-    backgroundColor: 'rgba(0, 123, 255, 0.16)',
     transform: [{ scale: 1.03 }],
   },
   shadow: {
-    shadowColor: colors.blue,
     shadowOpacity: 0.85,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 0 },

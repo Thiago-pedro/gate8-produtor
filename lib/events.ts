@@ -11,6 +11,7 @@ export type ProducerEvent = {
   status: string | null;
   banner_url: string | null;
   is_ended: boolean | null;
+  is_hidden: boolean;
   sold: number;
   quantity: number;
 };
@@ -271,11 +272,11 @@ export function isOpenEvent(event: { is_ended?: boolean | null; status?: string 
 }
 
 export async function fetchProducerEvents(userId: string): Promise<ProducerEvent[]> {
-  const rows = asRows(
-    await rest(
-      `events?select=id,name,slug,event_date,location,capacity,status,banner_url,is_ended&created_by=eq.${encodeURIComponent(userId)}&order=event_date.desc`
-    )
-  );
+  const id = encodeURIComponent(userId);
+  const rows = await firstRest([
+    `events?select=id,name,slug,event_date,location,capacity,status,banner_url,is_ended,is_hidden&created_by=eq.${id}&order=event_date.desc`,
+    `events?select=id,name,slug,event_date,location,capacity,status,banner_url,is_ended&created_by=eq.${id}&order=event_date.desc`,
+  ]);
 
   return rows
     .map((row) => ({
@@ -288,6 +289,7 @@ export async function fetchProducerEvents(userId: string): Promise<ProducerEvent
       status: row.status ? text(row.status) : null,
       banner_url: row.banner_url ? text(row.banner_url) : null,
       is_ended: Boolean(row.is_ended),
+      is_hidden: Boolean(row.is_hidden),
       sold: 0,
       quantity: 0,
     }))

@@ -2,6 +2,7 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,7 +15,6 @@ import {
   View,
 } from 'react-native';
 
-import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import {
   BATCH_GENDERS,
@@ -329,7 +329,7 @@ export function NewBatchModal({
 
             <Pressable onPress={() => void submit()} disabled={busy} style={styles.submit}>
               {busy ? (
-                <Loader size={22} color={colors.loginText} />
+                <ActivityIndicator color={colors.loginText} />
               ) : (
                 <Text style={styles.submitText}>{editing ? 'Salvar' : 'Criar'}</Text>
               )}

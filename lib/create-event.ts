@@ -1,3 +1,5 @@
+import * as FileSystem from 'expo-file-system/legacy';
+
 import { getAccessToken, getAuthUser } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
@@ -120,33 +122,45 @@ function extFromType(contentType: string, fallback: string) {
   return fallback;
 }
 
+function randomId() {
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+}
+
 export async function uploadEventImage(uri: string, contentType: string, folder?: 'maps') {
   if (!contentType.startsWith('image/')) throw new Error('O arquivo precisa ser uma imagem.');
   const user = await getAuthUser();
   if (!user?.id) throw new Error('Sessão expirada. Entre novamente.');
   const headers = await authHeaders();
-  const file = await fetch(uri);
-  const blob = await file.blob();
-  if (blob.size > MAX_IMAGE_BYTES) throw new Error('Imagem muito grande. Máx 5MB.');
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists && 'size' in info && typeof info.size === 'number' && info.size > MAX_IMAGE_BYTES) {
+      throw new Error('Imagem muito grande. Máx 5MB.');
+    }
+  } catch (caught) {
+    if (caught instanceof Error && caught.message.includes('Máx 5MB')) throw caught;
+  }
   const ext = extFromType(contentType, folder === 'maps' ? 'png' : 'jpg');
-  const path = folder === 'maps' ? `${user.id}/maps/${crypto.randomUUID()}.${ext}` : `${user.id}/${crypto.randomUUID()}.${ext}`;
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/event-banners/${path}`, {
-    method: 'POST',
-    headers: {
-      ...headers,
-      'Content-Type': contentType || blob.type || 'image/jpeg',
-      'x-upsert': 'false',
-    },
-    body: blob,
-  });
-  const raw = await response.text();
-  if (!response.ok) {
+  const path = folder === 'maps' ? `${user.id}/maps/${randomId()}.${ext}` : `${user.id}/${randomId()}.${ext}`;
+  const uploaded = await FileSystem.uploadAsync(
+    `${SUPABASE_URL}/storage/v1/object/event-banners/${path}`,
+    uri,
+    {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        ...headers,
+        'Content-Type': contentType || 'image/jpeg',
+        'x-upsert': 'false',
+      },
+    }
+  );
+  if (uploaded.status < 200 || uploaded.status >= 300) {
     let message = 'Falha ao enviar a imagem.';
     try {
-      const parsed = JSON.parse(raw) as { message?: string; error?: string };
+      const parsed = JSON.parse(uploaded.body) as { message?: string; error?: string };
       message = parsed.message || parsed.error || message;
     } catch {
-      /* keep default */
+      if (uploaded.body && uploaded.body.length < 220) message = uploaded.body;
     }
     throw new Error(message);
   }

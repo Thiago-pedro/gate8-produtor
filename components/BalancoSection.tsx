@@ -233,7 +233,7 @@ export function BalancoSection({
   if (error && !data) return <Text style={styles.empty}>{error}</Text>;
   if (!data) return <Text style={styles.empty}>Não foi possível carregar o balanço.</Text>;
 
-  const records = data.timeline.length + 1;
+  const records = data.timeline.length;
 
   return (
     <View style={styles.block}>
