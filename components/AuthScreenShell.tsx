@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Dimensions,
@@ -12,7 +11,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SiteFooter } from '@/components/SiteFooter';
-import { colors } from '@/constants/theme';
 
 type AuthKeyboardValue = {
   keyboardOpen: boolean;
@@ -89,10 +87,6 @@ export function AuthScreenShell({
   return (
     <AuthKeyboardContext.Provider value={{ keyboardOpen, ensureVisible }}>
       <View style={styles.root}>
-        <LinearGradient
-          colors={['rgba(0, 123, 255, 0.22)', colors.bg, colors.bg]}
-          style={StyleSheet.absoluteFill}
-        />
         <KeyboardAvoidingView
           style={styles.root}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -128,7 +122,7 @@ export function AuthScreenShell({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
   },
   content: {
     flexGrow: 1,

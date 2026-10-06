@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
 import { CortesiasSection } from '@/components/CortesiasSection';
+import { CupomSection } from '@/components/CupomSection';
 import { EnvioSection } from '@/components/EnvioSection';
 import { EventArt } from '@/components/EventArt';
 import { EstornosSection } from '@/components/EstornosSection';
@@ -28,6 +29,7 @@ import { formatBRL, formatEventDateTime } from '@/lib/format';
 
 type EventSection =
   | 'lotes'
+  | 'cupom'
   | 'cortesias'
   | 'portaria'
   | 'historico'
@@ -44,7 +46,9 @@ const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'balanco', label: 'Balanço' },
   { key: 'financeiro', label: 'Financeiro' },
   { key: 'lotes', label: 'Lotes' },
+  { key: 'cupom', label: 'Cupom' },
   { key: 'cortesias', label: 'Cortesias' },
+  { key: 'transferencia', label: 'Transferência' },
   { key: 'portaria', label: 'Portaria' },
   { key: 'retiradas', label: 'Retiradas' },
   { key: 'termos', label: 'Termos de uso' },
@@ -490,6 +494,18 @@ export default function EventoScreen() {
           </View>
         ) : null}
 
+        {section === 'cupom' ? (
+          <CupomSection
+            eventId={event.id}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 4000);
+            }}
+          />
+        ) : null}
+
         {section === 'cortesias' ? (
           <CortesiasSection
             eventId={event.id}
@@ -550,7 +566,7 @@ export default function EventoScreen() {
           </View>
         ) : null}
 
-        {section === 'transferencia' && delivery ? (
+        {section === 'transferencia' ? (
           <TransferenciasSection eventId={event.id} nonce={reloadKey} />
         ) : null}
 
@@ -730,11 +746,11 @@ export default function EventoScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
   },
   boot: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },

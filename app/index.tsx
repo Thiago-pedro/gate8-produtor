@@ -2,7 +2,6 @@ import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 
-import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
 
@@ -19,13 +18,24 @@ export default function SplashIndex() {
         return;
       }
       router.replace(status === 'producer' ? '/home' : '/convite');
-    }, 1600);
+    }, 1400);
     return () => clearTimeout(timer);
   }, [loading, producerLoading, router, status, user]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+      router.replace(status === 'guest' ? '/convite' : '/home');
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [router, status, user]);
+
   return (
     <View style={styles.splash}>
-      <Image source={require('../assets/images/splash-8.png')} style={styles.eight} resizeMode="contain" />
+      <Image source={require('../assets/images/splash.png')} style={styles.image} resizeMode="cover" />
     </View>
   );
 }
@@ -33,12 +43,11 @@ export default function SplashIndex() {
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#000000',
   },
-  eight: {
-    width: 160,
-    height: 160,
+  image: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
 });

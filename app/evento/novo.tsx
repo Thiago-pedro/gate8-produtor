@@ -634,7 +634,7 @@ export default function NovoEventoScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   flex: { flex: 1 },
   topBar: { paddingHorizontal: 12, paddingTop: 4 },
   back: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 4 },

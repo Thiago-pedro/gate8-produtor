@@ -39,6 +39,7 @@ export type TicketTransfer = {
   oldCode: string;
   newCode: string;
   ticketName: string;
+  createdAt: string;
 };
 
 async function headers() {
@@ -191,5 +192,15 @@ export async function fetchTicketTransfers(eventId: string): Promise<TicketTrans
     oldCode: text(row.oldCode ?? row.old_code),
     newCode: text(row.newCode ?? row.new_code),
     ticketName: text(row.ticketName ?? row.ticket_name),
+    createdAt: text(
+      row.acceptedAt ??
+        row.accepted_at ??
+        row.createdAt ??
+        row.created_at ??
+        row.transferredAt ??
+        row.transferred_at ??
+        row.completedAt ??
+        row.completed_at
+    ),
   }));
 }

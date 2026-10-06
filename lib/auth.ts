@@ -285,32 +285,52 @@ async function fetchUser(accessToken: string) {
   return toUser(body);
 }
 
+function withTimeout<T>(work: Promise<T>, ms = 8000) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 export async function restoreSession() {
   const stored = await readSession();
   if (!stored?.accessToken) return null;
 
   try {
-    const user = await fetchUser(stored.accessToken);
+    const user = await withTimeout(fetchUser(stored.accessToken));
     const next = { ...stored, user };
     await saveSession(next);
     return user;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'timeout') return stored.user;
     if (!stored.refreshToken) {
       await clearSession();
       return null;
     }
 
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    const response = await withTimeout(
+      fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ refresh_token: stored.refreshToken }),
-    });
+    })
+    );
 
     try {
       const session = await parseAuthResponse(response);
       await saveSession(session);
       return session.user;
-    } catch {
+    } catch (refreshError) {
+      if (refreshError instanceof Error && refreshError.message === 'timeout') return stored.user;
       await clearSession();
       return null;
     }

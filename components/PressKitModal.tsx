@@ -40,9 +40,10 @@ export function PressKitModal({ visible, onClose }: PressKitModalProps) {
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const pageSize = useMemo(() => {
-    const asset = Image.resolveAssetSource(PRESSKIT);
+    const asset =
+      typeof Image.resolveAssetSource === 'function' ? Image.resolveAssetSource(PRESSKIT) : null;
     const pageWidth = windowWidth;
-    const pageHeight = pageWidth * (asset.height / asset.width);
+    const pageHeight = asset?.width ? pageWidth * (asset.height / asset.width) : pageWidth * 1.414;
     const tileWidth = (windowWidth - 48) / 2;
     return { pageWidth, pageHeight, tileWidth };
   }, [windowWidth]);

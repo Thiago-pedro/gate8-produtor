@@ -124,7 +124,7 @@ export default function ConviteScreen() {
 const styles = StyleSheet.create({
   boot: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },

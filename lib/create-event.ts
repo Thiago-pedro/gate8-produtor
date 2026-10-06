@@ -5,7 +5,9 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
 
 const FN_GEOCODE = '7fb9a2c7e0a24d1b39ca13457d14bb01e800984c02d343d0954ee49b3e601d05';
+const FN_COUPON_GET = 'b5933bffccecce0a407e0c1fb7880919c031dc442e64bb7555a2cb8c0a94a953';
 const FN_COUPON = 'be4564ae045ec90f9b711b7b4ccb6325fd8af26222b33c77dcc2936b23399eed';
+const FN_COUPON_CLEAR = 'eda979c7e03ffb3e454b3e582e2d1366695fab2ede3c6493c019eddfe57a490f';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export type EventCouponDraft = {
@@ -230,13 +232,56 @@ export async function createProducerEvent(input: {
   return id;
 }
 
+export type EventCoupon = {
+  active: boolean;
+  code: string;
+  discountType: 'percent' | 'fixed';
+  discountValue: number;
+};
+
+function serverDiscountType(type: EventCouponDraft['discountType']) {
+  return type === 'percent' ? 'percent' : 'amount';
+}
+
+function discountValueOf(coupon: EventCouponDraft) {
+  const value = Number(String(coupon.discountValue).replace(',', '.'));
+  return Number.isFinite(value) && value > 0 ? value : 0.01;
+}
+
+export async function fetchEventCoupon(eventId: string): Promise<EventCoupon | null> {
+  const raw = asObject(await callServerFn<unknown>(FN_COUPON_GET, { event_id: eventId }));
+  const body = asObject(raw?.data) ?? raw;
+  const coupon = asObject(body?.coupon);
+  if (!coupon || !text(coupon.code)) return null;
+  return {
+    active: Boolean(coupon.active),
+    code: text(coupon.code),
+    discountType: text(coupon.discount_type) === 'percent' ? 'percent' : 'fixed',
+    discountValue: num(coupon.discount_value),
+  };
+}
+
 export async function saveEventCoupon(eventId: string, coupon: EventCouponDraft) {
   if (!coupon.active) return;
   await callServerFn(FN_COUPON, {
     event_id: eventId,
     code: coupon.code.trim(),
-    discount_type: coupon.discountType,
-    discount_value: Number(String(coupon.discountValue).replace(',', '.')),
+    discount_type: serverDiscountType(coupon.discountType),
+    discount_value: discountValueOf(coupon),
     active: true,
+  });
+}
+
+export async function saveManagedCoupon(eventId: string, coupon: EventCouponDraft) {
+  if (!coupon.active && !coupon.code.trim()) {
+    await callServerFn(FN_COUPON_CLEAR, { event_id: eventId });
+    return;
+  }
+  await callServerFn(FN_COUPON, {
+    event_id: eventId,
+    code: coupon.code.trim(),
+    discount_type: serverDiscountType(coupon.discountType),
+    discount_value: discountValueOf(coupon),
+    active: coupon.active,
   });
 }

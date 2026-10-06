@@ -1,12 +1,13 @@
 import { DarkTheme, ThemeProvider, type ErrorBoundaryProps, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AppBackground } from '@/components/AppBackground';
 import { colors } from '@/constants/theme';
-import { AuthProvider } from '@/lib/auth-context';
-import { ProducerProvider } from '@/lib/producer-context';
+import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { ProducerProvider, useProducer } from '@/lib/producer-context';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -16,13 +17,15 @@ export const unstable_settings = {
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
-    <View style={styles.errorScreen}>
-      <Text style={styles.errorTitle}>Erro ao abrir o painel</Text>
-      <Text style={styles.errorText}>{error.message}</Text>
-      <Pressable onPress={retry} style={styles.retry}>
-        <Text style={styles.retryText}>Tentar de novo</Text>
-      </Pressable>
-    </View>
+    <AppBackground>
+      <View style={styles.errorScreen}>
+        <Text style={styles.errorTitle}>Erro ao abrir o painel</Text>
+        <Text style={styles.errorText}>{error.message}</Text>
+        <Pressable onPress={retry} style={styles.retry}>
+          <Text style={styles.retryText}>Tentar de novo</Text>
+        </Pressable>
+      </View>
+    </AppBackground>
   );
 }
 
@@ -39,10 +42,37 @@ const navTheme = {
 };
 
 function BootSplash({ children }: { children: ReactNode }) {
+  const { loading } = useAuth();
+  const { loading: producerLoading } = useProducer();
+  const [holdSplash, setHoldSplash] = useState(true);
+
   useEffect(() => {
     void SplashScreen.hideAsync();
   }, []);
-  return children;
+
+  useEffect(() => {
+    const max = setTimeout(() => setHoldSplash(false), 4500);
+    return () => clearTimeout(max);
+  }, []);
+
+  useEffect(() => {
+    if (loading || producerLoading) return;
+    const timer = setTimeout(() => setHoldSplash(false), 1400);
+    return () => clearTimeout(timer);
+  }, [loading, producerLoading]);
+
+  return (
+    <View style={styles.app}>
+      {children}
+      {holdSplash ? (
+        <Image
+          source={require('../assets/images/splash.png')}
+          resizeMode="cover"
+          style={styles.opening}
+        />
+      ) : null}
+    </View>
+  );
 }
 
 export default function RootLayout() {
@@ -50,25 +80,28 @@ export default function RootLayout() {
     <ThemeProvider value={navTheme}>
       <AuthProvider>
         <ProducerProvider>
-          <StatusBar style="light" />
-          <BootSplash>
-            <Stack
-              initialRouteName="index"
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.bg },
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="login" />
-              <Stack.Screen name="cadastro" />
-              <Stack.Screen name="convite" />
-              <Stack.Screen name="cadastro-produtor" />
-              <Stack.Screen name="home" />
-              <Stack.Screen name="evento/novo" />
-              <Stack.Screen name="evento/[id]" />
-            </Stack>
-          </BootSplash>
+          <View style={styles.app}>
+            <StatusBar style="light" />
+            <BootSplash>
+              <Stack
+                initialRouteName="index"
+                screenLayout={({ children }) => <AppBackground>{children}</AppBackground>}
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.bg },
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="login" />
+                <Stack.Screen name="cadastro" />
+                <Stack.Screen name="convite" />
+                <Stack.Screen name="cadastro-produtor" />
+                <Stack.Screen name="home" />
+                <Stack.Screen name="evento/novo" />
+                <Stack.Screen name="evento/[id]" />
+              </Stack>
+            </BootSplash>
+          </View>
         </ProducerProvider>
       </AuthProvider>
     </ThemeProvider>
@@ -76,9 +109,18 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  app: {
+    flex: 1,
+  },
+  opening: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    elevation: 24,
+    backgroundColor: '#000000',
+  },
   errorScreen: {
     flex: 1,
-    backgroundColor: colors.bg,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     padding: 24,
     gap: 12,
