@@ -1,8 +1,8 @@
-import { DarkTheme, ThemeProvider, type ErrorBoundaryProps, Stack } from 'expo-router';
+import { DarkTheme, ThemeProvider, useSegments, type ErrorBoundaryProps, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppBackground } from '@/components/AppBackground';
 import { colors } from '@/constants/theme';
@@ -44,32 +44,57 @@ const navTheme = {
 function BootSplash({ children }: { children: ReactNode }) {
   const { loading } = useAuth();
   const { loading: producerLoading } = useProducer();
-  const [holdSplash, setHoldSplash] = useState(true);
+  const segments = useSegments();
+  const opacity = useRef(new Animated.Value(1)).current;
+  const fading = useRef(false);
+  const [cover, setCover] = useState(true);
+  const [minHold, setMinHold] = useState(true);
+  const leaf = segments[segments.length - 1];
+  const destination =
+    leaf === 'login' || leaf === 'home' || leaf === 'convite' || leaf === 'cadastro-produtor';
 
   useEffect(() => {
     void SplashScreen.hideAsync();
   }, []);
 
   useEffect(() => {
-    const max = setTimeout(() => setHoldSplash(false), 4500);
+    const timer = setTimeout(() => setMinHold(false), 900);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const max = setTimeout(() => setCover(false), 5600);
     return () => clearTimeout(max);
   }, []);
 
   useEffect(() => {
-    if (loading || producerLoading) return;
-    const timer = setTimeout(() => setHoldSplash(false), 1400);
+    if (fading.current || cover === false || minHold || loading || producerLoading || !destination) return;
+    const timer = setTimeout(() => {
+      fading.current = true;
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 380,
+        useNativeDriver: true,
+      }).start(() => setCover(false));
+    }, 220);
     return () => clearTimeout(timer);
-  }, [loading, producerLoading]);
+  }, [cover, destination, loading, minHold, opacity, producerLoading]);
 
   return (
     <View style={styles.app}>
       {children}
-      {holdSplash ? (
-        <Image
-          source={require('../assets/images/splash.png')}
-          resizeMode="cover"
-          style={styles.opening}
-        />
+      {cover ? (
+        <Animated.View
+          pointerEvents="auto"
+          needsOffscreenAlphaCompositing
+          style={[styles.opening, { opacity }]}
+        >
+          <Image
+            source={require('../assets/images/splash.png')}
+            resizeMode="cover"
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -80,7 +105,7 @@ export default function RootLayout() {
     <ThemeProvider value={navTheme}>
       <AuthProvider>
         <ProducerProvider>
-          <View style={styles.app}>
+          <View style={styles.appRoot}>
             <StatusBar style="light" />
             <BootSplash>
               <Stack
@@ -88,13 +113,13 @@ export default function RootLayout() {
                 screenLayout={({ children }) => <AppBackground>{children}</AppBackground>}
                 screenOptions={{
                   headerShown: false,
-                  contentStyle: { backgroundColor: colors.bg },
+                  contentStyle: { backgroundColor: '#000000' },
                 }}
               >
-                <Stack.Screen name="index" />
-                <Stack.Screen name="login" />
-                <Stack.Screen name="cadastro" />
-                <Stack.Screen name="convite" />
+                <Stack.Screen name="index" options={{ animation: 'none' }} />
+                <Stack.Screen name="login" options={{ animation: 'none' }} />
+                <Stack.Screen name="cadastro" options={{ animation: 'none' }} />
+                <Stack.Screen name="convite" options={{ animation: 'none' }} />
                 <Stack.Screen name="cadastro-produtor" />
                 <Stack.Screen name="home" />
                 <Stack.Screen name="evento/novo" />
@@ -111,6 +136,11 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   app: {
     flex: 1,
+    backgroundColor: '#000000',
+  },
+  appRoot: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
   opening: {
     ...StyleSheet.absoluteFillObject,

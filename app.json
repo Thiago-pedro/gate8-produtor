@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Gate8 Produtor",
+    "name": "GATE8 Produtor",
     "slug": "gate8-produtor",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -15,6 +15,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "club.gate8.produtor",
       "infoPlist": {
+        "CFBundleDisplayName": "GATE8 Produtor",
         "LSApplicationQueriesSchemes": [
           "gate8"
         ]
@@ -24,7 +25,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "package": "club.gate8.produtor",
       "adaptiveIcon": {
-        "backgroundColor": "#00188C",
+        "backgroundColor": "#001B92",
         "foregroundImage": "./assets/images/adaptive-icon.png"
       }
     },

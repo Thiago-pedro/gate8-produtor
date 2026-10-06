@@ -12,14 +12,11 @@ export default function SplashIndex() {
 
   useEffect(() => {
     if (loading || producerLoading) return;
-    const timer = setTimeout(() => {
-      if (!user) {
-        router.replace('/login');
-        return;
-      }
-      router.replace(status === 'producer' ? '/home' : '/convite');
-    }, 1400);
-    return () => clearTimeout(timer);
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    router.replace(status === 'producer' ? '/home' : '/convite');
   }, [loading, producerLoading, router, status, user]);
 
   useEffect(() => {

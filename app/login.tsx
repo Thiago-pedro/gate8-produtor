@@ -12,6 +12,7 @@ import { useProducer } from '@/lib/producer-context';
 const LOGIN_LOGO = require('../assets/images/logo-kit-original.png');
 const LOGIN_LOGO_ASPECT = 1009 / 165;
 const PRODUCER_BLUE = '#0000fe';
+const GATE_SILVER = '#B9BBC6';
 
 function LoginForm() {
   const router = useRouter();
@@ -67,6 +68,7 @@ function LoginForm() {
           keyboardType="email-address"
           placeholder="voce@email.com"
           placeholderTextColor="rgba(255,255,255,0.28)"
+          underlineColorAndroid="transparent"
           style={styles.input}
         />
         <Text style={styles.label}>SENHA</Text>
@@ -123,7 +125,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   brand: {
-    color: PRODUCER_BLUE,
+    color: GATE_SILVER,
     fontWeight: '800',
     letterSpacing: 4,
     marginTop: 10,
@@ -153,7 +155,7 @@ const styles = StyleSheet.create({
   },
   input: {
     color: colors.text,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: '#111E2E',
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,

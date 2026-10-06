@@ -187,7 +187,7 @@ export default function EventoScreen() {
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<EventSection>('lotes');
+  const [section, setSection] = useState<EventSection>('financeiro');
   const [reloadKey, setReloadKey] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [finance, setFinance] = useState<EventFinance | null>(null);
@@ -229,7 +229,7 @@ export default function EventoScreen() {
         const next = await fetchProducerEventDetail(id);
         setDetail(next);
         if (!soft) {
-          setSection(next.event.hidden_event_type === 'ticket_delivery' ? 'envio' : 'lotes');
+          setSection(next.event.hidden_event_type === 'ticket_delivery' ? 'envio' : 'financeiro');
         }
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Não foi possível abrir o evento.');
