@@ -36,9 +36,82 @@ function emitAuth(user: AuthUser | null) {
   for (const listener of listeners) listener(user);
 }
 
+function jwtExpiry(token: string) {
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let bits = '';
+    for (const char of padded + pad) {
+      if (char === '=') break;
+      const index = alphabet.indexOf(char);
+      if (index < 0) return null;
+      bits += index.toString(2).padStart(6, '0');
+    }
+    const bytes: number[] = [];
+    for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(Number.parseInt(bits.slice(i, i + 8), 2));
+    const payload = JSON.parse(String.fromCharCode(...bytes)) as { exp?: unknown };
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function tokenIsExpiring(token: string) {
+  const exp = jwtExpiry(token);
+  if (exp == null) return false;
+  return exp * 1000 <= Date.now() + 60_000;
+}
+
+let refreshTask: Promise<string | null> | null = null;
+
+async function refreshStoredSession() {
+  const stored = await readSession();
+  if (!stored?.refreshToken) {
+    await clearSession();
+    return null;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ refresh_token: stored.refreshToken }),
+  });
+
+  try {
+    const session = await parseAuthResponse(response);
+    await saveSession(session);
+    return session.accessToken;
+  } catch {
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      await clearSession();
+    }
+    return null;
+  }
+}
+
+function refreshOnce() {
+  if (!refreshTask) {
+    refreshTask = refreshStoredSession().finally(() => {
+      refreshTask = null;
+    });
+  }
+  return refreshTask;
+}
+
 export async function getAccessToken() {
   const session = await readSession();
-  return session?.accessToken ?? null;
+  if (!session?.accessToken) return null;
+  if (!tokenIsExpiring(session.accessToken)) return session.accessToken;
+  return refreshOnce();
+}
+
+export async function forceRefreshAccessToken() {
+  const session = await readSession();
+  if (!session?.refreshToken) return null;
+  return refreshOnce();
 }
 
 export async function getAuthUser() {

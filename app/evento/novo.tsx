@@ -152,6 +152,7 @@ export default function NovoEventoScreen() {
   const [map, setMap] = useState<{ uri: string; type: string } | null>(null);
   const [hasTables, setHasTables] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
+  const [hiddenType, setHiddenType] = useState<'party' | 'ticket_delivery'>('party');
   const [accepted, setAccepted] = useState(false);
   const [coupon, setCoupon] = useState<EventCouponDraft>(EMPTY_COUPON);
 
@@ -238,6 +239,7 @@ export default function NovoEventoScreen() {
         status: 'published',
         hasTables,
         isHidden,
+        hiddenEventType: isHidden ? hiddenType : null,
       });
       if (coupon.active) {
         try {
@@ -485,14 +487,35 @@ export default function NovoEventoScreen() {
               <View style={styles.card}>
                 <View style={styles.switchRow}>
                   <View style={styles.flex}>
-                    <Text style={styles.group}>Evento oculto (modo teste)</Text>
+                    <Text style={styles.group}>Evento oculto</Text>
                     <Text style={styles.hint}>
-                      Não aparece na home nem em listagens públicas. Continua acessível por link direto e pela
-                      maquininha.
+                      Para eventos restritos, acessíveis somente por pessoas convidadas.
                     </Text>
                   </View>
                   <Switch value={isHidden} onValueChange={setIsHidden} trackColor={{ true: colors.blue }} />
                 </View>
+                {isHidden ? (
+                  <View style={styles.typeGrid}>
+                    <Pressable
+                      onPress={() => setHiddenType('party')}
+                      style={[styles.typeCard, hiddenType === 'party' && styles.typeCardOn]}
+                    >
+                      <Text style={styles.typeTitle}>Festa</Text>
+                      <Text style={styles.hint}>
+                        Não aparece no site. Quem receber o link abre o evento diretamente no app.
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setHiddenType('ticket_delivery')}
+                      style={[styles.typeCard, hiddenType === 'ticket_delivery' && styles.typeCardOn]}
+                    >
+                      <Text style={styles.typeTitle}>Envio de Ingressos</Text>
+                      <Text style={styles.hint}>
+                        Para distribuir ingressos em massa a uma lista restrita de convidados.
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
               <View style={styles.card}>
                 <View style={styles.switchRow}>
@@ -654,6 +677,19 @@ const styles = StyleSheet.create({
   label: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '600' },
   group: { color: colors.text, fontSize: 15, fontWeight: '700' },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  typeGrid: { gap: 8, marginTop: 12 },
+  typeCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  typeCardOn: {
+    borderColor: 'rgba(0,123,255,0.7)',
+    backgroundColor: 'rgba(0,123,255,0.12)',
+  },
+  typeTitle: { color: colors.text, fontWeight: '700', fontSize: 14 },
   cyan: { color: '#00e5ff', fontSize: 11, marginTop: 6 },
   error: { color: colors.danger, fontSize: 13 },
   input: {

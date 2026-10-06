@@ -181,6 +181,16 @@ function text(value: unknown) {
   return value == null ? '' : String(value);
 }
 
+function payMethod(value: unknown) {
+  const raw = text(value).trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === 'cash' || raw === 'money' || raw === 'dinheiro') return 'cash';
+  if (raw === 'debit' || raw === 'debit_card') return 'debit';
+  if (raw === 'credit' || raw === 'credit_card') return 'credit_card';
+  if (raw === 'pix') return 'pix';
+  return raw;
+}
+
 function money(value: number) {
   return Number(value.toFixed(2));
 }
@@ -343,18 +353,23 @@ async function fetchPosIds(eventId: string) {
   const id = encodeURIComponent(eventId);
   const rows = await firstRest([
     `pos_sale_items?select=ticket_id,total,ticket:tickets!inner(event_id,purchase_id)&ticket.event_id=eq.${id}&ticket_id=not.is.null`,
-    `pos_sale_items?select=ticket_id,ticket:tickets!inner(event_id,purchase_id)&tickets.event_id=eq.${id}`,
+    `pos_sale_items?select=ticket_id,ticket:tickets!inner(event_id,purchase_id)&ticket.event_id=eq.${id}&ticket_id=not.is.null`,
   ]);
   const ticketIds = new Set<string>();
   const purchaseIds = new Set<string>();
+  const totals = new Map<string, number>();
   for (const row of rows) {
     const ticketId = text(row.ticket_id);
-    if (ticketId) ticketIds.add(ticketId);
+    if (ticketId) {
+      ticketIds.add(ticketId);
+      const sold = num(row.total);
+      if (sold > 0) totals.set(ticketId, sold);
+    }
     const ticket = nested(row, 'ticket') ?? nested(row, 'tickets');
     const purchaseId = text(ticket?.purchase_id ?? row.purchase_id);
     if (purchaseId) purchaseIds.add(purchaseId);
   }
-  return { ticketIds, purchaseIds };
+  return { ticketIds, purchaseIds, totals };
 }
 
 async function fetchFees(eventId: string) {
@@ -462,14 +477,22 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
 
   for (const ticket of tickets) {
     const purchase = nested(ticket, 'purchase') ?? nested(ticket, 'purchase_orders');
-    const courtesy = !ticket.payment_method;
+    const method = payMethod(ticket.payment_method);
+    const courtesy = !method;
     const purchaseId = text(ticket.purchase_id) || null;
     const isPos =
       !courtesy &&
-      (pos.ticketIds.has(text(ticket.id)) || (!!purchaseId && pos.purchaseIds.has(purchaseId)));
+      (method === 'cash' ||
+        method === 'debit' ||
+        pos.ticketIds.has(text(ticket.id)) ||
+        (!!purchaseId && pos.purchaseIds.has(purchaseId)));
     if (!courtesy && !isPos && !purchaseId) continue;
 
-    const unit = ticketPrice(ticket, tables);
+    let unit = ticketPrice(ticket, tables);
+    if (isPos && !(unit > 0)) {
+      const sold = pos.totals.get(text(ticket.id)) ?? 0;
+      if (sold > 0) unit = sold;
+    }
     const cancelled = isCancelledStatus(ticket.status) || isCancelledStatus(purchase?.status);
     const billable = courtesy || cancelled ? 0 : unit;
     const buyer = text(ticket.holder_name) || '—';
@@ -496,6 +519,8 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       current.gross += unit;
       current.billableGross += billable;
       current.isCancelled = current.cancelledCount === current.ticketCount;
+      if (isPos) current.isPos = true;
+      if (!current.method && method) current.method = method;
       if (purchaseId && paidTotal != null && Number.isFinite(paidTotal) && !current.seenPurchases.has(purchaseId)) {
         current.seenPurchases.add(purchaseId);
         current.paidTotal += paidTotal;
@@ -514,7 +539,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         key,
         purchaseCode: purchase?.code ? text(purchase.code) : null,
         buyer,
-        method: ticket.payment_method ? text(ticket.payment_method) : null,
+        method,
         isCourtesy: courtesy,
         isCancelled: cancelled,
         isPos,
@@ -552,6 +577,10 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       const inferred = money(group.gross - group.snapshotNet);
       if (inferred >= 0.01) group.couponDiscount = inferred;
     }
+    if (group.isPos && !(group.billableGross > 0) && group.paidKnown && group.paidTotal > 0) {
+      group.gross = group.paidTotal;
+      group.billableGross = group.paidTotal;
+    }
     group.billableGross = Math.max(0, group.billableGross - group.couponDiscount);
     group.financialGross = group.billableGross;
     let serviceFee = 0;
@@ -583,9 +612,10 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         }
       }
     }
-    const net = group.snapshotKnown
-      ? group.snapshotNet
-      : group.financialGross - serviceFee - bankFee;
+    const net =
+      group.isPos || !group.snapshotKnown
+        ? group.financialGross - serviceFee - bankFee
+        : group.snapshotNet;
     const hasCoupon = Boolean(group.couponCode) || group.couponDiscount > 0;
     return {
       key: group.key,

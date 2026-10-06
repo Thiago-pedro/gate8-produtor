@@ -50,6 +50,8 @@ export type ProducerEventDetail = {
     banner_url: string | null;
     description: string | null;
     is_ended: boolean | null;
+    is_hidden: boolean;
+    hidden_event_type: 'party' | 'ticket_delivery' | null;
   };
   batches: EventBatch[];
   sold: number;
@@ -141,6 +143,10 @@ async function restPatch(path: string, body: unknown) {
         : null;
     throw new Error(message || 'Não foi possível salvar o lote.');
   }
+}
+
+export async function setEventHidden(eventId: string, hidden: boolean) {
+  await restPatch(`events?id=eq.${encodeURIComponent(eventId)}`, { is_hidden: hidden });
 }
 
 async function restCount(path: string): Promise<number | null> {
@@ -296,6 +302,14 @@ export async function fetchProducerEvents(userId: string): Promise<ProducerEvent
     .filter((event) => Boolean(event.id));
 }
 
+export async function countValidatedTickets(eventId: string) {
+  const id = encodeURIComponent(eventId);
+  const usedFilter = encodeURIComponent('(checked_in_at.not.is.null,status.eq.used)');
+  const counted = await restCount(`tickets?select=id&event_id=eq.${id}&or=${usedFilter}`);
+  if (counted != null) return counted;
+  return restCount(`tickets?select=id&event_id=eq.${id}&checked_in_at=not.is.null`);
+}
+
 export async function fetchProducerEventDetail(eventId: string): Promise<ProducerEventDetail> {
   const id = encodeURIComponent(eventId);
   const rows = asRows(await rest(`events?select=*&id=eq.${id}`));
@@ -340,6 +354,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     cancelledPaid,
     cancelledCourtesy,
     cancelledByOrder,
+    validatedCount,
   ] = await Promise.all([
     firstRest(
       ticketSelects.flatMap((select) => [
@@ -367,6 +382,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     restCount(
       `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&purchase_orders.status=in.(${CANCELLED_IN})`
     ),
+    countValidatedTickets(eventId),
   ]);
 
   const firstScan = earliestCheckinByTicket(checkinRows);
@@ -380,7 +396,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     .sort((left, right) => (right.at || '').localeCompare(left.at || ''));
 
   const cancelled = cancelledRows.length;
-  const validated = usedTickets.length;
+  const validated = validatedCount ?? usedTickets.length;
   const courtesy =
     courtesyAll != null
       ? Math.max(0, courtesyAll - (cancelledCourtesy ?? 0))
@@ -413,6 +429,11 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       banner_url: row.banner_url ? text(row.banner_url) : null,
       description: row.description ? text(row.description) : null,
       is_ended: Boolean(row.is_ended),
+      is_hidden: Boolean(row.is_hidden),
+      hidden_event_type:
+        row.hidden_event_type === 'ticket_delivery' || row.hidden_event_type === 'party'
+          ? row.hidden_event_type
+          : null,
     },
     batches,
     sold: soldCount,

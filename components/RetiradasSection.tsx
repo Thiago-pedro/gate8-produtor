@@ -90,8 +90,11 @@ export function RetiradasSection({
     <View style={styles.block}>
       <View style={styles.card}>
         <Line label="Receita bruta" value={formatBRL(data.gross)} />
-        <Line label="Taxa de serviço Gate8" value={`- ${formatBRL(data.serviceFees)}`} muted />
-        <Line label="Taxa do banco / Pagar.me" value={`- ${formatBRL(data.bankFees)}`} muted />
+        <Line
+          label="Taxa de serviço Gate8"
+          value={`- ${formatBRL(data.serviceFees + data.bankFees)}`}
+          muted
+        />
         <View style={styles.netRow}>
           <Text style={styles.netLabel}>Total líquido</Text>
           <Text style={styles.netValue}>{formatBRL(data.net)}</Text>

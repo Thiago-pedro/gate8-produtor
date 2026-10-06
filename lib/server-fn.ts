@@ -1,4 +1,4 @@
-import { getAccessToken } from '@/lib/auth';
+import { forceRefreshAccessToken, getAccessToken } from '@/lib/auth';
 import { siteUrl } from '@/constants/theme';
 
 type Node = {
@@ -111,10 +111,16 @@ function errorFromBody(raw: unknown, status: number, text: string) {
   return new Error('Não foi possível carregar os dados financeiros.');
 }
 
-export async function callServerFn<T>(
+function jwtExpired(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  return /jwt/i.test(message) && /expired/i.test(message);
+}
+
+async function performServerFn<T>(
   id: string,
   data: unknown,
-  options?: { method?: 'GET' | 'POST'; auth?: boolean }
+  options: { method?: 'GET' | 'POST'; auth?: boolean } | undefined,
+  token: string | null
 ): Promise<T> {
   const method = options?.method ?? 'POST';
   const payload = JSON.stringify(wrap(data));
@@ -124,11 +130,7 @@ export async function callServerFn<T>(
     origin: siteUrl,
   };
 
-  if (options?.auth !== false) {
-    const token = await getAccessToken();
-    if (!token) throw new Error('Faça login para continuar.');
-    headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   let url = `${siteUrl}/_serverFn/${id}`;
   const init: RequestInit = { method, headers };
@@ -152,4 +154,26 @@ export async function callServerFn<T>(
   const decoded = unwrap(decodeValue(raw));
   if (!response.ok) throw errorFromBody(decoded, response.status, text);
   return decoded as T;
+}
+
+export async function callServerFn<T>(
+  id: string,
+  data: unknown,
+  options?: { method?: 'GET' | 'POST'; auth?: boolean }
+): Promise<T> {
+  const useAuth = options?.auth !== false;
+  let token: string | null = null;
+  if (useAuth) {
+    token = await getAccessToken();
+    if (!token) throw new Error('Faça login para continuar.');
+  }
+
+  try {
+    return await performServerFn(id, data, options, token);
+  } catch (error) {
+    if (!useAuth || !jwtExpired(error)) throw error;
+    token = await forceRefreshAccessToken();
+    if (!token) throw new Error('Sua sessão expirou. Entre de novo.');
+    return performServerFn(id, data, options, token);
+  }
 }

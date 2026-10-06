@@ -180,6 +180,7 @@ export async function createProducerEvent(input: {
   status: 'draft' | 'published';
   hasTables: boolean;
   isHidden: boolean;
+  hiddenEventType: 'party' | 'ticket_delivery' | null;
 }) {
   const user = await getAuthUser();
   if (!user?.id) throw new Error('Sessão expirada. Entre novamente.');
@@ -205,6 +206,7 @@ export async function createProducerEvent(input: {
       status: input.status,
       has_tables: input.hasTables,
       is_hidden: input.isHidden,
+      hidden_event_type: input.isHidden ? input.hiddenEventType : null,
       created_by: user.id,
     }),
   });

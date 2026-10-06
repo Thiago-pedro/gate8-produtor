@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
 import { CortesiasSection } from '@/components/CortesiasSection';
+import { EnvioSection } from '@/components/EnvioSection';
 import { EventArt } from '@/components/EventArt';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
@@ -14,9 +15,10 @@ import { Loader } from '@/components/Loader';
 import { RetiradasSection } from '@/components/RetiradasSection';
 import { SiteFooter } from '@/components/SiteFooter';
 import { TermosSection } from '@/components/TermosSection';
+import { TransferenciasSection } from '@/components/TransferenciasSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
-import { batchTicketName, fetchProducerEventDetail, isOpenEvent, type EventBatch, type ProducerEventDetail } from '@/lib/events';
+import { batchTicketName, fetchProducerEventDetail, isOpenEvent, setEventHidden, type EventBatch, type ProducerEventDetail } from '@/lib/events';
 import {
   fetchEventFinance,
   type EventFinance,
@@ -33,7 +35,9 @@ type EventSection =
   | 'retiradas'
   | 'estornos'
   | 'balanco'
-  | 'termos';
+  | 'termos'
+  | 'envio'
+  | 'transferencia';
 
 const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'estornos', label: 'Estornos' },
@@ -45,6 +49,14 @@ const EVENT_TABS: { key: EventSection; label: string }[] = [
   { key: 'retiradas', label: 'Retiradas' },
   { key: 'termos', label: 'Termos de uso' },
   { key: 'historico', label: 'Validação' },
+];
+
+const DELIVERY_TABS: { key: EventSection; label: string }[] = [
+  { key: 'envio', label: 'Participantes' },
+  { key: 'portaria', label: 'Portaria' },
+  { key: 'transferencia', label: 'Transferência' },
+  { key: 'historico', label: 'Validação' },
+  { key: 'termos', label: 'Termos de uso' },
 ];
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -60,15 +72,16 @@ function ChannelCard({
   title,
   accent,
   netColor,
-  bankLabel,
   data,
+  methods,
 }: {
   title: string;
   accent: string;
   netColor: string;
-  bankLabel: string;
   data: FinanceChannel;
+  methods?: { label: string; value: number; count: number }[];
 }) {
+  const lines = (methods ?? []).filter((item) => item.count > 0);
   return (
     <View style={[styles.channelCard, { borderLeftColor: accent }]}>
       <View style={styles.channelTop}>
@@ -83,18 +96,28 @@ function ChannelCard({
           <Text style={styles.channelValue}>{formatBRL(data.gross)}</Text>
         </View>
         <View style={styles.channelCell}>
-          <Text style={styles.channelLabel}>{bankLabel}</Text>
-          <Text style={styles.channelMuted}>- {formatBRL(data.bank)}</Text>
-        </View>
-        <View style={styles.channelCell}>
           <Text style={styles.channelLabel}>Taxa Gate8</Text>
-          <Text style={styles.channelMuted}>- {formatBRL(data.gate8)}</Text>
+          <Text style={styles.channelMuted}>- {formatBRL(data.bank + data.gate8)}</Text>
         </View>
         <View style={styles.channelCell}>
           <Text style={styles.channelLabel}>Líquido</Text>
           <Text style={[styles.channelValue, { color: netColor }]}>{formatBRL(data.net)}</Text>
         </View>
       </View>
+      {lines.length > 0 ? (
+        <View style={styles.posBreakdown}>
+          {lines.map((item) => (
+            <View key={item.label} style={styles.posLine}>
+              <Text style={styles.posMethod} numberOfLines={1}>
+                {item.label} ({item.count})
+              </Text>
+              <Text style={styles.posAmount} numberOfLines={1}>
+                {formatBRL(item.value)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -168,6 +191,7 @@ export default function EventoScreen() {
   const [financeError, setFinanceError] = useState<string | null>(null);
   const [newBatchOpen, setNewBatchOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<EventBatch | null>(null);
+  const [hiddenOverride, setHiddenOverride] = useState<boolean | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function copyText(value: string, message: string) {
@@ -183,6 +207,7 @@ export default function EventoScreen() {
     setFinance(null);
     setFinanceError(null);
     setFinanceBusy(false);
+    setHiddenOverride(null);
   }, [id]);
 
   useEffect(() => {
@@ -197,7 +222,11 @@ export default function EventoScreen() {
       if (!soft) setBusy(true);
       setError(null);
       try {
-        setDetail(await fetchProducerEventDetail(id));
+        const next = await fetchProducerEventDetail(id);
+        setDetail(next);
+        if (!soft) {
+          setSection(next.event.hidden_event_type === 'ticket_delivery' ? 'envio' : 'lotes');
+        }
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Não foi possível abrir o evento.');
       } finally {
@@ -256,6 +285,27 @@ export default function EventoScreen() {
   const { event, batches } = detail;
   const ended = !isOpenEvent(event);
   const gateLink = event.slug ? `${siteUrl}/p/${event.slug}` : null;
+  const isHidden = hiddenOverride ?? event.is_hidden;
+  const delivery = event.hidden_event_type === 'ticket_delivery';
+  const tabs = delivery ? DELIVERY_TABS : EVENT_TABS;
+  const openLink = `${siteUrl}/abrir/${event.id}`;
+
+  async function changeHidden(next: boolean) {
+    if (next === isHidden) return;
+    setHiddenOverride(next);
+    try {
+      await setEventHidden(event.id, next);
+      setDetail((current) =>
+        current ? { ...current, event: { ...current.event, is_hidden: next } } : current
+      );
+      setHiddenOverride(null);
+    } catch (caught) {
+      setHiddenOverride(null);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast(caught instanceof Error ? caught.message : 'Não foi possível atualizar o evento.');
+      toastTimer.current = setTimeout(() => setToast(null), 2200);
+    }
+  }
   const validatedPct = detail.sold > 0 ? (detail.validated / detail.sold) * 100 : 0;
   const validatedPctLabel =
     validatedPct === 0 ? '0%' : validatedPct < 10 ? `${validatedPct.toFixed(1)}%` : `${Math.round(validatedPct)}%`;
@@ -296,11 +346,57 @@ export default function EventoScreen() {
         <Text style={styles.meta}>{formatEventDateTime(event.event_date)}</Text>
         {event.location ? <Text style={styles.meta}>{event.location}</Text> : null}
 
+        {delivery ? (
+          <View style={styles.deliveryBadge}>
+            <Text style={styles.deliveryBadgeText}>Envio de ingressos</Text>
+          </View>
+        ) : (
+        <View style={styles.hiddenCard}>
+          <View style={styles.hiddenTop}>
+            <View style={styles.flex}>
+              <Text style={styles.hiddenTitle}>Evento oculto</Text>
+              {isHidden ? (
+                <Text style={styles.hiddenHint}>
+                  Não aparece no site nem no app. Acesso somente pelo link.
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.hiddenSwitch}>
+              <Pressable
+                onPress={() => void changeHidden(true)}
+                style={[styles.hiddenOption, isHidden && styles.hiddenOptionOn]}
+              >
+                <Text style={[styles.hiddenOptionText, isHidden && styles.hiddenOptionTextOn]}>Oculto</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void changeHidden(false)}
+                style={[styles.hiddenOption, !isHidden && styles.hiddenOptionOn]}
+              >
+                <Text style={[styles.hiddenOptionText, !isHidden && styles.hiddenOptionTextOn]}>Público</Text>
+              </Pressable>
+            </View>
+          </View>
+          {isHidden ? (
+            <Pressable
+              onPress={() => void copyText(openLink, 'Link copiado para a área de transferência')}
+              style={({ pressed }) => [styles.openLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.openLinkValue} numberOfLines={1} selectable={false} pointerEvents="none">
+                {openLink}
+              </Text>
+              <Ionicons name="copy-outline" size={16} color={colors.blue} />
+            </Pressable>
+          ) : null}
+        </View>
+        )}
+
+        {delivery ? null : (
         <View style={styles.stats}>
           <Stat label="Vendidos" value={String(detail.sold)} />
           <Stat label="Cortesias" value={String(detail.courtesy)} />
           <Stat label="Validados" value={String(detail.validated)} />
         </View>
+        )}
 
         <ScrollView
           horizontal
@@ -309,7 +405,7 @@ export default function EventoScreen() {
           style={styles.tabs}
           contentContainerStyle={styles.tabsInner}
         >
-          {EVENT_TABS.map((tab) => (
+          {tabs.map((tab) => (
             <Pressable
               key={tab.key}
               onPress={() => setSection(tab.key)}
@@ -322,7 +418,19 @@ export default function EventoScreen() {
           ))}
         </ScrollView>
 
-        {section === 'lotes' ? (
+        {section === 'envio' && delivery ? (
+          <EnvioSection
+            eventId={event.id}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+          />
+        ) : null}
+
+        {section === 'lotes' && !delivery ? (
           <View style={styles.block}>
             {ended ? null : (
               <Pressable
@@ -442,6 +550,10 @@ export default function EventoScreen() {
           </View>
         ) : null}
 
+        {section === 'transferencia' && delivery ? (
+          <TransferenciasSection eventId={event.id} nonce={reloadKey} />
+        ) : null}
+
         {section === 'historico' ? (
           <View style={styles.historyCard}>
             <View style={styles.historyTitleRow}>
@@ -490,36 +602,20 @@ export default function EventoScreen() {
                   title="Site (PIX + Crédito)"
                   accent={colors.success}
                   netColor={colors.success}
-                  bankLabel="Taxa Pagar.me"
                   data={finance.site}
                 />
                 <ChannelCard
                   title="POS (maquininha)"
                   accent={colors.warning}
                   netColor={colors.warning}
-                  bankLabel="Taxa maquininha"
                   data={finance.pos}
+                  methods={[
+                    { label: 'Dinheiro', value: finance.pos.cash, count: finance.pos.cashCount },
+                    { label: 'Débito', value: finance.pos.debit, count: finance.pos.debitCount },
+                    { label: 'Crédito', value: finance.pos.credit_card, count: finance.pos.creditCount },
+                    { label: 'PIX', value: finance.pos.pix, count: finance.pos.pixCount },
+                  ]}
                 />
-                {finance.pos.pixCount + finance.pos.creditCount + finance.pos.debitCount + finance.pos.cashCount >
-                0 ? (
-                  <View style={styles.posBreakdown}>
-                    {[
-                      { label: 'Dinheiro', value: finance.pos.cash, count: finance.pos.cashCount },
-                      { label: 'Débito', value: finance.pos.debit, count: finance.pos.debitCount },
-                      { label: 'Crédito', value: finance.pos.credit_card, count: finance.pos.creditCount },
-                      { label: 'PIX', value: finance.pos.pix, count: finance.pos.pixCount },
-                    ]
-                      .filter((item) => item.count > 0)
-                      .map((item) => (
-                        <View key={item.label} style={styles.posLine}>
-                          <Text style={styles.purchaseMeta}>
-                            {item.label} · {item.count}
-                          </Text>
-                          <Text style={styles.purchaseMeta}>{formatBRL(item.value)}</Text>
-                        </View>
-                      ))}
-                  </View>
-                ) : null}
 
                 <View style={styles.kpiGrid}>
                   <Kpi label="Ingressos pagos" value={String(finance.totals.paid)} />
@@ -692,6 +788,85 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
   },
+  deliveryBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0,123,255,0.18)',
+  },
+  deliveryBadgeText: {
+    color: colors.blue,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  hiddenCard: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    padding: 12,
+    gap: 10,
+  },
+  hiddenTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  flex: {
+    flex: 1,
+  },
+  hiddenTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  hiddenHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+  hiddenSwitch: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    padding: 3,
+  },
+  hiddenOption: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  hiddenOptionOn: {
+    backgroundColor: colors.blue,
+  },
+  hiddenOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  hiddenOptionTextOn: {
+    color: colors.loginText,
+  },
+  openLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  openLinkValue: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 12,
+  },
   stats: {
     flexDirection: 'row',
     gap: 8,
@@ -720,6 +895,7 @@ const styles = StyleSheet.create({
   },
   tabs: {
     marginTop: 18,
+    marginBottom: 16,
     flexGrow: 0,
     marginHorizontal: -16,
   },
@@ -1078,11 +1254,10 @@ const styles = StyleSheet.create({
   },
   channelGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   channelCell: {
-    width: '47%',
+    flex: 1,
   },
   channelLabel: {
     color: colors.muted,
@@ -1104,16 +1279,30 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   posBreakdown: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 10,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.10)',
+    gap: 6,
   },
   posLine: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    width: '100%',
+  },
+  posMethod: {
+    color: colors.muted,
+    fontSize: 13,
+    flexShrink: 1,
+    marginRight: 12,
+  },
+  posAmount: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+    marginLeft: 'auto',
   },
   kpiGrid: {
     flexDirection: 'row',
