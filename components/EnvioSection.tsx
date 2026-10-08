@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
@@ -14,7 +14,6 @@ import {
   createDeliveryGuest,
   fetchDeliveryGuests,
   guestCounts,
-  sendDeliveryInvite,
   type DeliveryGuest,
 } from '@/lib/ticket-delivery';
 
@@ -35,7 +34,8 @@ export function EnvioSection({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
-  const [sendingAll, setSendingAll] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<DeliveryGuest | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [custom, setCustom] = useState('');
@@ -125,41 +125,6 @@ export function EnvioSection({
     }
   }
 
-  async function sendPending() {
-    const pending = (guests ?? []).filter((guest) => guest.email && !guest.emailSentAt);
-    if (pending.length === 0) {
-      onToast('Nenhum convite pendente de envio.');
-      return;
-    }
-    setSendingAll(true);
-    let sent = 0;
-    for (const guest of pending) {
-      try {
-        await sendDeliveryInvite(guest.id);
-        sent += 1;
-      } catch {
-        // segue para o próximo
-      }
-    }
-    setSendingAll(false);
-    onToast(`${sent} convite(s) enviado(s)`);
-    setGuests(await fetchDeliveryGuests(eventId));
-  }
-
-  async function sendOne(guest: DeliveryGuest) {
-    if (!guest.email) {
-      onToast('Cadastre um e-mail para este participante.');
-      return;
-    }
-    try {
-      await sendDeliveryInvite(guest.id);
-      onToast(`Convite enviado para ${guest.email}`);
-      setGuests(await fetchDeliveryGuests(eventId));
-    } catch (caught) {
-      onToast(caught instanceof Error ? caught.message : 'Não foi possível enviar o convite.');
-    }
-  }
-
   async function addTickets(guestId: string) {
     const count = Math.min(50, Math.max(1, Number(quantity) || 1));
     try {
@@ -171,25 +136,21 @@ export function EnvioSection({
     }
   }
 
-  function removeGuest(guest: DeliveryGuest) {
-    Alert.alert('Excluir participante', `Excluir ${guest.name} e os ingressos não validados?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Excluir',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            try {
-              await archiveDeliveryGuest(guest.id);
-              onToast('Participante e ingressos excluídos');
-              setGuests(await fetchDeliveryGuests(eventId));
-            } catch {
-              onToast('Ingressos já validados não podem ser excluídos.');
-            }
-          })();
-        },
-      },
-    ]);
+  async function confirmDelete() {
+    if (!pendingDelete || removing) return;
+    const guest = pendingDelete;
+    setRemoving(true);
+    try {
+      await archiveDeliveryGuest(guest.id);
+      setPendingDelete(null);
+      if (expandedId === guest.id) setExpandedId(null);
+      onToast('Participante e ingressos excluídos');
+      setGuests(await fetchDeliveryGuests(eventId));
+    } catch {
+      onToast('Ingressos já validados não podem ser excluídos.');
+    } finally {
+      setRemoving(false);
+    }
   }
 
   if (busy && !guests) {
@@ -244,13 +205,6 @@ export function EnvioSection({
           style={({ pressed }) => [styles.primary, pressed && styles.pressed, adding && styles.off]}
         >
           <Text style={styles.primaryText}>{adding ? 'Adicionando...' : 'Adicionar participante'}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => void sendPending()}
-          disabled={sendingAll}
-          style={({ pressed }) => [styles.secondary, pressed && styles.pressed, sendingAll && styles.off]}
-        >
-          <Text style={styles.secondaryText}>{sendingAll ? 'Enviando...' : 'Enviar pendentes'}</Text>
         </Pressable>
       </View>
 
@@ -311,16 +265,13 @@ export function EnvioSection({
               </Text>
             ) : null}
             <View style={styles.actions}>
-              <Pressable onPress={() => void sendOne(guest)} style={styles.action}>
-                <Text style={styles.actionText}>Enviar</Text>
-              </Pressable>
               <Pressable
                 onPress={() => setOpenId(open ? null : guest.id)}
                 style={styles.action}
               >
                 <Text style={styles.actionText}>{open ? 'Fechar' : 'Ingressos'}</Text>
               </Pressable>
-              <Pressable onPress={() => removeGuest(guest)} style={styles.action}>
+              <Pressable onPress={() => setPendingDelete(guest)} style={styles.action}>
                 <Text style={styles.actionDanger}>Excluir</Text>
               </Pressable>
             </View>
@@ -405,6 +356,45 @@ export function EnvioSection({
           </Pressable>
         </View>
       ) : null}
+
+      <Modal
+        visible={pendingDelete != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!removing) setPendingDelete(null);
+        }}
+      >
+        <Pressable
+          style={styles.modalBg}
+          onPress={() => {
+            if (!removing) setPendingDelete(null);
+          }}
+        >
+          <Pressable style={styles.modal} onPress={() => undefined}>
+            <Text style={styles.modalTitle}>Excluir participante</Text>
+            <Text style={styles.modalText}>
+              Excluir {pendingDelete?.name} e os ingressos não validados? Essa ação não pode ser desfeita.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setPendingDelete(null)}
+                disabled={removing}
+                style={({ pressed }) => [styles.modalCancel, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalCancelText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void confirmDelete()}
+                disabled={removing}
+                style={({ pressed }) => [styles.modalOk, pressed && styles.pressed, removing && styles.off]}
+              >
+                <Text style={styles.modalOkText}>{removing ? 'Excluindo...' : 'Excluir'}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -564,4 +554,61 @@ const styles = StyleSheet.create({
   manage: { gap: 8, marginTop: 6 },
   ticketRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, alignItems: 'center' },
   ticketCode: { color: colors.text, fontSize: 12, flex: 1 },
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modal: {
+    width: '100%',
+    backgroundColor: '#050d1f',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18,
+    padding: 18,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 18,
+  },
+  modalCancel: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  modalOk: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOkText: {
+    color: colors.loginText,
+    fontWeight: '700',
+  },
 });

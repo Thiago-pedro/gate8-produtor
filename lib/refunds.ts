@@ -197,8 +197,8 @@ export async function executeRefund(eventId: string, hit: RefundSearchHit): Prom
   const ok = Boolean(refund.ok);
   const extra = attempted
     ? ok
-      ? 'Estorno enviado ao Pagar.me.'
-      : `Tickets cancelados, mas Pagar.me falhou: ${text(refund.message)}`
+      ? 'Estorno do pagamento enviado.'
+      : `Ingressos cancelados, mas o estorno do pagamento falhou: ${text(refund.message).replace(/pagar\.?me/gi, 'pagamento')}`
     : '';
   return {
     cancelled,
@@ -217,7 +217,7 @@ export async function fetchRefundReport(eventId: string): Promise<RefundReport> 
     amount: num(row.amount),
     ticketCount: num(row.ticket_count),
     freedTables: num(row.freed_tables),
-    gatewayMessage: row.gateway_message ? text(row.gateway_message) : null,
+    gatewayMessage: row.gateway_message ? text(row.gateway_message).replace(/pagar\.?me/gi, 'pagamento') : null,
   }));
   return {
     totalAmount: num(raw.total_amount),

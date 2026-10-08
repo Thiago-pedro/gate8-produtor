@@ -283,8 +283,19 @@ export function BalancoSection({
         ))}
 
         <View style={styles.todayCard}>
-          <Text style={styles.todayTitle}>Hoje</Text>
-          <Text style={styles.balance}>Saldo disponível: {formatBRL(data.summary.available)}</Text>
+          <View style={styles.availableRow}>
+            <View style={styles.availableIcon}>
+              <Ionicons name="wallet" size={18} color="#7EBEFF" />
+            </View>
+            <View style={styles.availableCopy}>
+              <Text style={styles.availableLabel} numberOfLines={1}>
+                Saldo disponível
+              </Text>
+              <Text style={styles.availableValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                {formatBRL(data.summary.available)}
+              </Text>
+            </View>
+          </View>
         </View>
       </View>
 
@@ -391,10 +402,44 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(0,123,255,0.35)',
+    backgroundColor: 'rgba(0,123,255,0.12)',
     padding: 12,
-    gap: 4,
   },
-  todayTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  availableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  availableIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 70, 180, 0.55)',
+  },
+  availableCopy: {
+    flexShrink: 1,
+    minWidth: 0,
+    alignItems: 'center',
+  },
+  availableLabel: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  availableValue: {
+    color: '#3B9BFF',
+    fontSize: 28,
+    fontWeight: '800',
+    marginTop: 1,
+    letterSpacing: -0.3,
+    textAlign: 'center',
+  },
   pdfBtn: {
     marginTop: 4,
     height: 44,

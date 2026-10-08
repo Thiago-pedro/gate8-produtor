@@ -14,7 +14,7 @@ type Node = {
 function encodeValue(value: unknown, next: { i: number }): Node {
   if (typeof value === 'number') return { t: 0, s: value };
   if (typeof value === 'string') return { t: 1, s: value };
-  if (typeof value === 'boolean') return { t: 2, s: value ? 3 : 2 };
+  if (typeof value === 'boolean') return { t: 2, s: value ? 2 : 3 };
   if (value === null) return { t: 2, s: 0 };
   if (value === undefined) return { t: 2, s: 1 };
   if (Array.isArray(value)) {
@@ -55,8 +55,8 @@ function decodeValue(node: unknown): unknown {
     case 2:
       if (item.s === 0) return null;
       if (item.s === 1) return undefined;
-      if (item.s === 2) return false;
-      if (item.s === 3) return true;
+      if (item.s === 2) return true;
+      if (item.s === 3) return false;
       return item.s;
     case 9:
       return (item.a ?? []).map(decodeValue);

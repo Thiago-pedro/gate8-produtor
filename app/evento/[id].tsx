@@ -137,12 +137,31 @@ function Kpi({
   hint?: string;
   tone?: 'coupon' | 'net' | 'danger';
 }) {
+  if (tone === 'net') {
+    return (
+      <View style={[styles.kpi, styles.kpiNet]}>
+        <View style={styles.kpiNetRow}>
+          <View style={styles.kpiNetIcon}>
+            <Ionicons name="stats-chart" size={18} color="#7EBEFF" />
+          </View>
+          <View style={styles.kpiNetCopy}>
+            <Text style={styles.kpiNetLabel} numberOfLines={1}>
+              Valor líquido do evento
+            </Text>
+            <Text style={styles.kpiNetValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+              {value}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
         styles.kpi,
         tone === 'coupon' && styles.kpiCoupon,
-        tone === 'net' && styles.kpiNet,
         tone === 'danger' && styles.kpiDanger,
       ]}
     >
@@ -159,7 +178,6 @@ function Kpi({
         style={[
           styles.kpiValue,
           tone === 'coupon' && styles.kpiCouponText,
-          tone === 'net' && styles.kpiNetText,
           tone === 'danger' && styles.kpiDangerText,
         ]}
       >
@@ -662,7 +680,7 @@ export default function EventoScreen() {
                         : `Serviço ${formatBRL(finance.totals.serviceFee)} + Banco ${formatBRL(finance.totals.bankFee)}`
                     }
                   />
-                  <Kpi label="Líquido" value={formatBRL(finance.totals.net)} tone="net" />
+                  <Kpi label="Valor líquido do evento" value={formatBRL(finance.totals.net)} tone="net" />
                 </View>
                 <Text style={styles.financeHint}>
                   Cada compra, cupom e estorno ficam detalhados no financeiro do site.
@@ -710,7 +728,9 @@ export default function EventoScreen() {
           />
         ) : null}
 
-        {section === 'termos' ? <TermosSection eventId={event.id} nonce={reloadKey} /> : null}
+        {section === 'termos' ? (
+          <TermosSection eventId={event.id} nonce={reloadKey} mode={delivery ? 'delivery' : 'default'} />
+        ) : null}
 
         <SiteFooter />
       </ScrollView>
@@ -1343,6 +1363,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,123,255,0.12)',
     borderColor: 'rgba(0,123,255,0.35)',
   },
+  kpiNetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  kpiNetIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 70, 180, 0.55)',
+  },
+  kpiNetCopy: {
+    flexShrink: 1,
+    minWidth: 0,
+    alignItems: 'center',
+  },
+  kpiNetLabel: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  kpiNetValue: {
+    color: '#3B9BFF',
+    fontSize: 28,
+    fontWeight: '800',
+    marginTop: 1,
+    letterSpacing: -0.3,
+    textAlign: 'center',
+  },
   kpiDanger: {
     backgroundColor: 'rgba(255,92,122,0.10)',
     borderColor: 'rgba(255,92,122,0.28)',
@@ -1370,9 +1425,6 @@ const styles = StyleSheet.create({
   },
   kpiCouponHint: {
     color: 'rgba(61,220,151,0.78)',
-  },
-  kpiNetText: {
-    color: colors.blue,
   },
   kpiDangerText: {
     color: colors.danger,

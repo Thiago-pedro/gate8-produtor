@@ -99,7 +99,7 @@ export function EstornosSection({
       <Text style={styles.title}>Estornar compra</Text>
       <Text style={styles.copy}>
         Busque pelo nome do comprador ou pelo código da compra (ex.: GT8-ABC123). O estorno cancela os
-        ingressos, libera as mesas e solicita o reembolso na Pagar.me quando aplicável.
+        ingressos, libera as mesas e solicita o reembolso do pagamento quando aplicável.
       </Text>
 
       <View style={styles.searchRow}>
@@ -166,7 +166,7 @@ export function EstornosSection({
               {hit.purchaseCode ? ' · ' : ''}
               {hit.kind === 'purchase'
                 ? `${formatBRL(hit.totalAmount)} · ${hit.method || '—'} · ${
-                    hit.viaPagarme ? 'via Pagar.me' : 'manual'
+                    hit.viaPagarme ? 'pagamento online' : 'manual'
                   } · `
                 : `Sem compra (avulso) · ${hit.method || 'cortesia'} · `}
               {hit.activeTickets} ativo(s) / {hit.ticketCount} total
@@ -182,7 +182,7 @@ export function EstornosSection({
       <View style={styles.notice}>
         <Text style={styles.noticeText}>
           Cortesias e ingressos pagos manualmente são apenas cancelados (não há valor para reembolsar).
-          Compras pagas via Pagar.me solicitam estorno integral no gateway.
+          Compras pagas online solicitam o estorno integral do valor.
         </Text>
       </View>
 

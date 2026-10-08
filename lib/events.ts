@@ -355,6 +355,8 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     cancelledCourtesy,
     cancelledByOrder,
     validatedCount,
+    ticketTotal,
+    cancelledExact,
   ] = await Promise.all([
     firstRest(
       ticketSelects.flatMap((select) => [
@@ -383,6 +385,8 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&purchase_orders.status=in.(${CANCELLED_IN})`
     ),
     countValidatedTickets(eventId),
+    restCount(`tickets?select=id&event_id=eq.${id}`),
+    restCount(`tickets?select=id&event_id=eq.${id}&status=in.(${CANCELLED_IN})`),
   ]);
 
   const firstScan = earliestCheckinByTicket(checkinRows);
@@ -409,6 +413,9 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     paidAll != null
       ? Math.max(0, paidAll - refundedPaid)
       : Math.max(0, sold - courtesy - cancelled);
+  const issued =
+    ticketTotal != null ? Math.max(0, ticketTotal - (cancelledExact ?? cancelled)) : soldCount;
+  const isDelivery = row.hidden_event_type === 'ticket_delivery';
 
   const tokens = asRows(
     await restOrEmpty(
@@ -436,7 +443,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
           : null,
     },
     batches,
-    sold: soldCount,
+    sold: isDelivery ? issued : soldCount,
     courtesy,
     quantity: quantity || num(row.capacity),
     validated,

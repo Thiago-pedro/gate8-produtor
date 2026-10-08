@@ -48,8 +48,8 @@ function LoginForm() {
           accessibilityLabel="Gate8"
           source={LOGIN_LOGO}
           style={{
-            height: keyboardOpen ? 40 : 56,
-            width: (keyboardOpen ? 40 : 56) * LOGIN_LOGO_ASPECT,
+            height: keyboardOpen ? 32 : 44.8,
+            width: (keyboardOpen ? 32 : 44.8) * LOGIN_LOGO_ASPECT,
           }}
           resizeMode="contain"
         />
