@@ -68,7 +68,7 @@ export function EstornosSection({
   }
 
   async function onConfirmRefund() {
-    if (!confirm) return;
+    if (!confirm || confirm.validated) return;
     const hit = confirm;
     setConfirm(null);
     setRefundingKey(hit.key);
@@ -98,7 +98,8 @@ export function EstornosSection({
     <View style={styles.block}>
       <Text style={styles.title}>Estornar compra</Text>
       <Text style={styles.copy}>
-        Busque pelo nome do comprador ou pelo codigo da compra (ex.: GT8-ABC123).
+        Busque pelo nome do comprador ou pelo código da compra (ex.: GT8-ABC123). O estorno cancela os
+        ingressos, libera as mesas e solicita o reembolso na Pagar.me quando aplicável.
       </Text>
 
       <View style={styles.searchRow}>
@@ -133,35 +134,57 @@ export function EstornosSection({
       {hits.map((hit) => {
         const refunding = refundingKey === hit.key;
         const done = hit.activeTickets === 0;
+        const blocked = hit.validated && !done;
+        const title =
+          hit.channel && !hit.buyer.toLowerCase().startsWith(`${hit.channel.toLowerCase()} -`)
+            ? `${hit.channel} - ${hit.buyer}`
+            : hit.buyer;
         return (
           <View key={hit.key} style={styles.hit}>
-            <View style={styles.hitInfo}>
-              <Text style={styles.buyer}>{hit.buyer}</Text>
-              <Text style={styles.meta}>
-                {hit.kind === 'purchase'
-                  ? `${hit.purchaseCode ? `${hit.purchaseCode} · ` : ''}${formatBRL(hit.totalAmount)} · ${
-                      hit.method ? refundMethodLabel(hit.method) : '—'
-                    } · ${hit.viaPagarme ? 'via Pagar.me' : 'manual'}`
-                  : `Sem compra (avulso) · ${hit.method ? refundMethodLabel(hit.method) : 'cortesia'}`}
-              </Text>
-              <Text style={styles.meta}>
-                {hit.activeTickets} ativo(s) / {hit.ticketCount} total · {formatDateTime(hit.createdAt) || '—'}
-              </Text>
+            <View style={styles.hitTop}>
+              <Text style={[styles.buyer, styles.buyerFlex]}>{title}</Text>
+              {blocked ? (
+                <View style={styles.validatedBadge}>
+                  <Text style={styles.validatedText}>Já validado</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => setConfirm(hit)}
+                  disabled={refunding || done}
+                  style={({ pressed }) => [
+                    styles.refundBtn,
+                    (refunding || done) && styles.refundBtnOff,
+                    pressed && !refunding && !done && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.refundText}>{refunding ? '...' : done ? 'Já cancelado' : 'Estornar'}</Text>
+                </Pressable>
+              )}
             </View>
-            <Pressable
-              onPress={() => setConfirm(hit)}
-              disabled={refunding || done}
-              style={({ pressed }) => [
-                styles.refundBtn,
-                (refunding || done) && styles.refundBtnOff,
-                pressed && !refunding && !done && styles.pressed,
-              ]}
-            >
-              <Text style={styles.refundText}>{refunding ? '...' : done ? 'Já cancelado' : 'Estornar'}</Text>
-            </Pressable>
+            <Text style={styles.meta}>
+              {hit.purchaseCode ? <Text style={styles.codeChip}>{hit.purchaseCode}</Text> : null}
+              {hit.purchaseCode ? ' · ' : ''}
+              {hit.kind === 'purchase'
+                ? `${formatBRL(hit.totalAmount)} · ${hit.method || '—'} · ${
+                    hit.viaPagarme ? 'via Pagar.me' : 'manual'
+                  } · `
+                : `Sem compra (avulso) · ${hit.method || 'cortesia'} · `}
+              {hit.activeTickets} ativo(s) / {hit.ticketCount} total
+            </Text>
+            <Text style={styles.meta}>{formatDateTime(hit.createdAt) || '—'}</Text>
+            {blocked ? (
+              <Text style={styles.blocked}>Ingresso já validado. Estorno não permitido.</Text>
+            ) : null}
           </View>
         );
       })}
+
+      <View style={styles.notice}>
+        <Text style={styles.noticeText}>
+          Cortesias e ingressos pagos manualmente são apenas cancelados (não há valor para reembolsar).
+          Compras pagas via Pagar.me solicitam estorno integral no gateway.
+        </Text>
+      </View>
 
       {data ? (
         <>
@@ -280,18 +303,58 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   hit: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    gap: 4,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 14,
     padding: 12,
   },
-  hitInfo: {
-    flex: 1,
-    minWidth: 0,
+  hitTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  codeChip: {
+    color: colors.text,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  validatedBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255,92,122,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,92,122,0.45)',
+  },
+  validatedText: {
+    color: '#ff8fa3',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  blocked: {
+    color: '#ff8fa3',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  notice: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(220,170,60,0.45)',
+    backgroundColor: 'rgba(180,120,20,0.16)',
+    padding: 12,
+  },
+  noticeText: {
+    color: 'rgba(255,214,140,0.95)',
+    fontSize: 13,
+    lineHeight: 18,
   },
   refundBtn: {
     backgroundColor: colors.danger,
@@ -361,6 +424,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     fontWeight: '700',
+  },
+  buyerFlex: {
+    flex: 1,
   },
   code: {
     color: colors.blue,
