@@ -1,4 +1,5 @@
 import { getAccessToken, getAuthUser } from '@/lib/auth';
+import { fetchEventBoletos, type BoletoSale } from '@/lib/boletos';
 import { siteUrl } from '@/constants/theme';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
@@ -55,7 +56,25 @@ export type BalanceRefundItem = {
   balanceAfter: number;
 };
 
-export type BalanceTimelineItem = BalanceSalesItem | BalanceWithdrawalItem | BalanceRefundItem;
+export type BalanceBoletoItem = {
+  id: string;
+  type: 'boleto_issue' | 'boleto_paid';
+  occurredAt: string;
+  buyer: string;
+  purchaseCode: string;
+  count: number;
+  ticketCount: number;
+  gross: number;
+  fees: number;
+  net: number;
+  balanceAfter: number;
+};
+
+export type BalanceTimelineItem =
+  | BalanceSalesItem
+  | BalanceWithdrawalItem
+  | BalanceRefundItem
+  | BalanceBoletoItem;
 
 export type BalanceResponse = {
   eventName: string;
@@ -508,8 +527,8 @@ async function buildFromOfficialTables(eventId: string): Promise<BalanceResponse
   const purchases = new Map<string, Purchase>();
   for (const ticket of tickets) {
     const purchaseId = text(ticket.purchase_id);
-    const method = text(ticket.payment_method);
-    if (!purchaseId || !method) continue;
+    const method = text(ticket.payment_method).toLowerCase();
+    if (!purchaseId || !method || method === 'boleto') continue;
     const purchase = purchasesById.get(purchaseId) ?? nested(ticket, 'purchase') ?? nested(ticket, 'purchase_orders');
     const createdAt =
       text(purchase?.created_at) || text(ticket.created_at) || new Date().toISOString();
@@ -739,13 +758,197 @@ async function buildFromOfficialTables(eventId: string): Promise<BalanceResponse
   };
 }
 
+function purchaseCode(id: string) {
+  return id.slice(0, 8).toUpperCase();
+}
+
+function allocateCents(total: number, weights: number[]) {
+  const sum = weights.reduce((acc, weight) => acc + weight, 0);
+  if (total <= 0 || sum <= 0) return weights.map(() => 0);
+  const raw = weights.map((weight) => (total * weight) / sum);
+  const floors = raw.map((value) => Math.floor(value));
+  let left = total - floors.reduce((acc, value) => acc + value, 0);
+  const order = raw
+    .map((value, index) => ({ index, fraction: value - floors[index] }))
+    .sort((leftItem, rightItem) => rightItem.fraction - leftItem.fraction);
+  for (const item of order) {
+    if (left <= 0) break;
+    floors[item.index] += 1;
+    left -= 1;
+  }
+  return floors;
+}
+
+async function paidInstallments(purchaseIds: string[]) {
+  const moments = new Map<string, { at: string; cents: number }[]>();
+  for (let index = 0; index < purchaseIds.length; index += 80) {
+    const chunk = purchaseIds
+      .slice(index, index + 80)
+      .map((item) => encodeURIComponent(item))
+      .join(',');
+    if (!chunk) continue;
+    const rows = await firstRest([
+      `boleto_installments?select=purchase_id,amount_cents,status,paid_at,pagarme_order_id&purchase_id=in.(${chunk})&status=eq.paid`,
+      `boleto_installments?select=purchase_id,amount_cents,status,paid_at&purchase_id=in.(${chunk})&status=eq.paid`,
+    ]);
+    for (const row of rows) {
+      const at = text(row.paid_at);
+      const purchaseId = text(row.purchase_id);
+      if (!at || !purchaseId) continue;
+      if (row.pagarme_order_id != null && !text(row.pagarme_order_id)) continue;
+      const list = moments.get(purchaseId) ?? [];
+      list.push({ at, cents: Math.max(0, Math.round(num(row.amount_cents))) });
+      moments.set(purchaseId, list);
+    }
+  }
+  return moments;
+}
+
+function boletoTimelineItems(
+  rows: BoletoSale[],
+  paidAt: Map<string, { at: string; cents: number }[]>
+): BalanceBoletoItem[] {
+  const items: BalanceBoletoItem[] = [];
+  for (const row of rows) {
+    const code = purchaseCode(row.id || row.intentId);
+    const buyer = row.buyer || '—';
+    if (row.generated > 0 || row.fees > 0) {
+      items.push({
+        id: `boleto-issue-${row.id || row.intentId}`,
+        type: 'boleto_issue',
+        occurredAt: row.createdAt || new Date().toISOString(),
+        buyer,
+        purchaseCode: code,
+        count: row.generated,
+        ticketCount: row.ticketCount,
+        gross: money(row.gross),
+        fees: money(row.fees),
+        net: money(-row.fees),
+        balanceAfter: 0,
+      });
+    }
+    if (!(row.paid > 0)) continue;
+    const moments = paidAt.get(row.id) ?? [];
+    if (moments.length === 0) {
+      items.push({
+        id: `boleto-paid-${row.id || row.intentId}`,
+        type: 'boleto_paid',
+        occurredAt: row.createdAt || new Date().toISOString(),
+        buyer,
+        purchaseCode: code,
+        count: row.paidCount || 1,
+        ticketCount: row.ticketCount,
+        gross: money(row.paid),
+        fees: 0,
+        net: money(row.paid),
+        balanceAfter: 0,
+      });
+      continue;
+    }
+    const cents = allocateCents(
+      Math.round(row.paid * 100),
+      moments.map((moment) => moment.cents || 1)
+    );
+    moments.forEach((moment, index) => {
+      const amount = money(cents[index] / 100);
+      if (!(amount > 0)) return;
+      items.push({
+        id: `boleto-paid-${row.id || row.intentId}-${index}`,
+        type: 'boleto_paid',
+        occurredAt: moment.at,
+        buyer,
+        purchaseCode: code,
+        count: 1,
+        ticketCount: 0,
+        gross: amount,
+        fees: 0,
+        net: amount,
+        balanceAfter: 0,
+      });
+    });
+  }
+  return items;
+}
+
+function timelineRank(item: BalanceTimelineItem) {
+  if (item.type === 'sales') return 0;
+  if (item.type === 'boleto_issue') return 1;
+  if (item.type === 'boleto_paid') return 2;
+  if (item.type === 'withdrawal') return 3;
+  return 4;
+}
+
+function movementNet(item: BalanceTimelineItem) {
+  if (item.type === 'sales' || item.type === 'boleto_issue' || item.type === 'boleto_paid') return item.net;
+  if (item.type === 'withdrawal') return item.status === 'paid' ? -Math.abs(item.amount) : 0;
+  return -Math.abs(item.amount);
+}
+
+function applyRunningBalance(items: BalanceTimelineItem[]) {
+  let saldo = 0;
+  return items.map((item) => {
+    saldo = money(saldo + movementNet(item));
+    return { ...item, balanceAfter: saldo };
+  });
+}
+
+function operatingNet(items: BalanceTimelineItem[]) {
+  return money(items.reduce((sum, item) => (item.type === 'withdrawal' ? sum : sum + movementNet(item)), 0));
+}
+
+function operatingGross(items: BalanceTimelineItem[]) {
+  return money(
+    items.reduce((sum, item) => {
+      if (item.type === 'sales' || item.type === 'boleto_issue') return sum + item.gross;
+      return sum;
+    }, 0)
+  );
+}
+
+function sameMoney(left: number, right: number) {
+  return Math.abs(money(left) - money(right)) < 0.02;
+}
+
+async function mergeBoletoTimeline(eventId: string, balance: BalanceResponse): Promise<BalanceResponse> {
+  const boletos = await fetchEventBoletos(eventId).catch(() => null);
+  if (!boletos || boletos.rows.length === 0) return balance;
+  const paidAt = await paidInstallments(boletos.rows.map((row) => row.id).filter(Boolean)).catch(
+    () => new Map<string, { at: string; cents: number }[]>()
+  );
+  const boletoItems = boletoTimelineItems(boletos.rows, paidAt);
+  const timelineHasBoleto = balance.timeline.some(
+    (item) => item.type === 'boleto_issue' || item.type === 'boleto_paid'
+  );
+  const summaryHasBoleto =
+    sameMoney(balance.summary.net, operatingNet(balance.timeline) + boletos.totals.net) &&
+    sameMoney(balance.summary.gross, operatingGross(balance.timeline) + boletos.totals.gross);
+  const timeline = applyRunningBalance(
+    [...balance.timeline, ...(timelineHasBoleto ? [] : boletoItems)].sort((left, right) => {
+      const byTime = left.occurredAt.localeCompare(right.occurredAt);
+      return byTime || timelineRank(left) - timelineRank(right);
+    })
+  );
+  const gross = summaryHasBoleto ? balance.summary.gross : money(balance.summary.gross + boletos.totals.gross);
+  const fees = summaryHasBoleto ? balance.summary.fees : money(balance.summary.fees + boletos.totals.fees);
+  const net = summaryHasBoleto ? balance.summary.net : money(balance.summary.net + boletos.totals.net);
+  return {
+    ...balance,
+    summary: {
+      ...balance.summary,
+      gross,
+      fees,
+      net,
+      available: money(net - balance.summary.withdrawnPaid - balance.summary.withdrawnPending),
+    },
+    timeline,
+  };
+}
+
 export async function fetchEventBalance(eventId: string): Promise<BalanceResponse> {
   const official = await fetchOfficialEndpoint(eventId);
-  if (official) {
-    const salesBroken = official.timeline.some(
-      (item) => item.type === 'sales' && item.salesCount > 0 && item.net === 0 && item.gross === 0
-    );
-    if (!salesBroken) return official;
-  }
-  return buildFromOfficialTables(eventId);
+  const salesBroken =
+    !!official &&
+    official.timeline.some((item) => item.type === 'sales' && item.salesCount > 0 && item.net === 0 && item.gross === 0);
+  const balance = official && !salesBroken ? official : await buildFromOfficialTables(eventId);
+  return mergeBoletoTimeline(eventId, balance);
 }

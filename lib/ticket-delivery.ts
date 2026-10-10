@@ -178,11 +178,56 @@ export async function archiveDeliveryGuest(guestId: string) {
   await callServerFn(FN_ARCHIVE, { guestId });
 }
 
+async function eventTicketIndex(eventId: string) {
+  const ids = new Set<string>();
+  const codes = new Set<string>();
+  const id = encodeURIComponent(eventId);
+  let from = 0;
+  for (;;) {
+    const page = asRows(
+      await rest<unknown>(`tickets?select=id,code&event_id=eq.${id}&offset=${from}&limit=1000`)
+    );
+    for (const row of page) {
+      const ticketId = text(row.id);
+      const code = text(row.code);
+      if (ticketId) ids.add(ticketId);
+      if (code) codes.add(code);
+    }
+    if (page.length < 1000) break;
+    from += 1000;
+  }
+  return { ids, codes };
+}
+
+function transferBelongsToEvent(
+  row: Row,
+  eventId: string,
+  ticketIds: Set<string>,
+  codes: Set<string>
+) {
+  const rowEvent = text(row.eventId ?? row.event_id);
+  if (rowEvent) return rowEvent === eventId;
+  const ticketId = text(
+    row.ticketId ?? row.ticket_id ?? row.newTicketId ?? row.new_ticket_id ?? row.oldTicketId ?? row.old_ticket_id
+  );
+  const oldCode = text(row.oldCode ?? row.old_code);
+  const newCode = text(row.newCode ?? row.new_code);
+  if (ticketId && ticketIds.has(ticketId)) return true;
+  if (oldCode && codes.has(oldCode)) return true;
+  if (newCode && codes.has(newCode)) return true;
+  return false;
+}
+
 export async function fetchTicketTransfers(eventId: string): Promise<TicketTransfer[]> {
-  const raw = await callServerFn<unknown>(FN_TRANSFERS, { eventId });
+  const [raw, index] = await Promise.all([
+    callServerFn<unknown>(FN_TRANSFERS, { eventId }),
+    eventTicketIndex(eventId),
+  ]);
   const root = raw && typeof raw === 'object' ? (raw as Row) : {};
   const nested = root.data && typeof root.data === 'object' ? (root.data as Row) : root;
-  const list = asRows(nested.transfers ?? nested.items ?? nested);
+  const list = asRows(nested.transfers ?? nested.items ?? nested).filter((row) =>
+    transferBelongsToEvent(row, eventId, index.ids, index.codes)
+  );
   return list.map((row) => ({
     id: text(row.id),
     fromName: text(row.fromName ?? row.from_name),

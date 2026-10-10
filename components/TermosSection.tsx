@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
+import { fetchEventBoletos } from '@/lib/boletos';
 import { formatBRL } from '@/lib/format';
 import { feeOnHundred, fetchProducerTerms, formatPercent, type ProducerTerms } from '@/lib/terms';
 
@@ -143,19 +144,29 @@ export function TermosSection({
   mode?: 'default' | 'delivery';
 }) {
   const [data, setData] = useState<ProducerTerms | null>(null);
+  const [boletoEnabled, setBoletoEnabled] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (mode === 'delivery') {
+      setBoletoEnabled(false);
       setBusy(false);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      setData(await fetchProducerTerms(eventId));
+      const [terms, boletos] = await Promise.all([
+        fetchProducerTerms(eventId),
+        eventId
+          ? fetchEventBoletos(eventId).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      setData(terms);
+      setBoletoEnabled(Boolean(boletos?.enabled));
     } catch (caught) {
+      setBoletoEnabled(false);
       if (!eventId) {
         setData({ pixPercent: 7.99, creditPercent: 7.99, sameRate: true });
         return;
@@ -217,6 +228,19 @@ export function TermosSection({
           </>
         )}
       </View>
+
+      {boletoEnabled ? (
+        <View style={styles.section}>
+          <Text style={styles.heading}>Pagamento por boleto</Text>
+          <Text style={styles.body}>
+            Quando o pagamento por boleto estiver ativo, cada boleto efetivamente emitido custa R$ 3,49, mesmo
+            enquanto estiver pendente. Essa taxa é descontada do produtor e não é acrescentada ao valor cobrado do
+            comprador. O ingresso só é liberado depois da compensação de todos os boletos da compra. Até a
+            compensação, o líquido do evento pode ficar negativo. O valor do boleto entra no repasse quando compensar,
+            e não no momento da emissão.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.heading}>2. Validação de ingressos</Text>

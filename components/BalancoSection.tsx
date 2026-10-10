@@ -83,6 +83,40 @@ function Kpi({
 }
 
 function TimelineCard({ item }: { item: BalanceTimelineItem }) {
+  if (item.type === 'boleto_issue' || item.type === 'boleto_paid') {
+    const issued = item.type === 'boleto_issue';
+    const countLabel = issued
+      ? `${item.count} boleto${item.count === 1 ? '' : 's'}${
+          item.ticketCount > 0
+            ? ` · ${item.ticketCount} ingresso${item.ticketCount === 1 ? '' : 's'}`
+            : ''
+        }`
+      : `${item.count} boleto${item.count === 1 ? '' : 's'} compensado${item.count === 1 ? '' : 's'}`;
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardTop}>
+          <View style={styles.cardInfo}>
+            <Text style={issued ? styles.issueTitle : styles.paidTitle}>
+              {issued ? 'Venda por boleto · Emitidos' : 'Compensação de boleto'}
+            </Text>
+            <Text style={styles.meta}>{formatStamp(item.occurredAt)}</Text>
+            <Text style={styles.meta}>
+              {item.purchaseCode} · {item.buyer}
+            </Text>
+            <Text style={styles.meta}>{countLabel}</Text>
+            <Text style={styles.balance}>Saldo acumulado: {formatBRL(item.balanceAfter)}</Text>
+          </View>
+          <Text style={item.net < 0 ? styles.minus : styles.plus}>{signed(item.net)}</Text>
+        </View>
+        <Text style={styles.side}>
+          {issued
+            ? `Bruto emitido ${formatBRL(item.gross)} · Taxa Gate8 - ${formatBRL(item.fees)}`
+            : `Valor compensado ${formatBRL(item.gross)}`}
+        </Text>
+      </View>
+    );
+  }
+
   if (item.type === 'sales') {
     return (
       <View style={styles.card}>
@@ -149,6 +183,12 @@ function pdfHtml(data: BalanceResponse) {
     .map((item) => {
       if (item.type === 'sales') {
         return `<tr><td>Recebimentos ${formatReceiptDay(item.day)}</td><td>${item.salesCount} vendas · ${item.ticketCount} ingressos</td><td>${formatBRL(item.net)}</td><td>${formatBRL(item.balanceAfter)}</td></tr>`;
+      }
+      if (item.type === 'boleto_issue') {
+        return `<tr><td>Emissão de boleto</td><td>${item.buyer} · ${item.count} boletos · taxa ${formatBRL(item.fees)}</td><td>${formatBRL(item.net)}</td><td>${formatBRL(item.balanceAfter)}</td></tr>`;
+      }
+      if (item.type === 'boleto_paid') {
+        return `<tr><td>Compensação de boleto</td><td>${item.buyer} · ${item.purchaseCode}</td><td>${formatBRL(item.net)}</td><td>${formatBRL(item.balanceAfter)}</td></tr>`;
       }
       if (item.type === 'withdrawal') {
         return `<tr><td>Retirada ${item.status}</td><td>${item.notes ?? formatStamp(item.occurredAt)}</td><td>- ${formatBRL(item.amount)}</td><td>${formatBRL(item.balanceAfter)}</td></tr>`;
@@ -262,7 +302,9 @@ export function BalancoSection({
       <View style={styles.timelineHead}>
         <View>
           <Text style={styles.timelineTitle}>Linha do tempo</Text>
-          <Text style={styles.timelineHint}>Recebimentos diários, retiradas e estornos em ordem cronológica.</Text>
+          <Text style={styles.timelineHint}>
+            Recebimentos, emissão e compensação de boletos, retiradas e estornos em ordem cronológica.
+          </Text>
         </View>
         <View style={styles.countPill}>
           <Text style={styles.countText}>{records} registros</Text>
@@ -277,7 +319,14 @@ export function BalancoSection({
 
         {data.timeline.map((item) => (
           <View key={item.id} style={styles.row}>
-            <View style={[styles.dot, item.type !== 'sales' && styles.dotGold]} />
+            <View
+              style={[
+                styles.dot,
+                (item.type === 'withdrawal' || item.type === 'refund') && styles.dotGold,
+                item.type === 'boleto_issue' && styles.dotIssue,
+                item.type === 'boleto_paid' && styles.dotPaid,
+              ]}
+            />
             <TimelineCard item={item} />
           </View>
         ))}
@@ -379,6 +428,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.blue,
   },
   dotGold: { backgroundColor: colors.warning },
+  dotIssue: { backgroundColor: '#7EBEFF' },
+  dotPaid: { backgroundColor: colors.success },
+  issueTitle: { color: '#7EBEFF', fontSize: 14, fontWeight: '700' },
+  paidTitle: { color: colors.success, fontSize: 14, fontWeight: '700' },
   card: {
     borderRadius: 14,
     borderWidth: 1,

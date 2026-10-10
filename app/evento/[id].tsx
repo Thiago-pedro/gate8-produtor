@@ -6,10 +6,12 @@ import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
+import { BoletosSection } from '@/components/BoletosSection';
 import { CortesiasSection } from '@/components/CortesiasSection';
 import { CupomSection } from '@/components/CupomSection';
 import { EnvioSection } from '@/components/EnvioSection';
 import { EventArt } from '@/components/EventArt';
+import { EventQrModal } from '@/components/EventQrModal';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
@@ -19,12 +21,21 @@ import { TermosSection } from '@/components/TermosSection';
 import { TransferenciasSection } from '@/components/TransferenciasSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
-import { batchTicketName, fetchProducerEventDetail, isOpenEvent, setEventHidden, type EventBatch, type ProducerEventDetail } from '@/lib/events';
+import {
+  batchTicketName,
+  fetchProducerEventDetail,
+  isOpenEvent,
+  reorderTicketBatches,
+  setEventHidden,
+  type EventBatch,
+  type ProducerEventDetail,
+} from '@/lib/events';
 import {
   fetchEventFinance,
   type EventFinance,
   type FinanceChannel,
 } from '@/lib/finance';
+import { boletoHistoryVisible, fetchEventBoletos, type EventBoletos } from '@/lib/boletos';
 import { formatBRL, formatEventDateTime } from '@/lib/format';
 
 type EventSection =
@@ -34,6 +45,7 @@ type EventSection =
   | 'portaria'
   | 'historico'
   | 'financeiro'
+  | 'boletos'
   | 'retiradas'
   | 'estornos'
   | 'balanco'
@@ -41,26 +53,27 @@ type EventSection =
   | 'envio'
   | 'transferencia';
 
-const EVENT_TABS: { key: EventSection; label: string }[] = [
-  { key: 'estornos', label: 'Estornos' },
-  { key: 'balanco', label: 'Balanço' },
-  { key: 'financeiro', label: 'Financeiro' },
-  { key: 'lotes', label: 'Lotes' },
-  { key: 'cupom', label: 'Cupom' },
-  { key: 'cortesias', label: 'Cortesias' },
-  { key: 'transferencia', label: 'Transferência' },
-  { key: 'portaria', label: 'Portaria' },
-  { key: 'retiradas', label: 'Retiradas' },
-  { key: 'termos', label: 'Termos de uso' },
-  { key: 'historico', label: 'Validação' },
+const EVENT_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'estornos', label: 'Estornos', icon: 'arrow-undo-outline' },
+  { key: 'balanco', label: 'Balanço', icon: 'pulse-outline' },
+  { key: 'financeiro', label: 'Financeiro', icon: 'wallet-outline' },
+  { key: 'boletos', label: 'Boletos', icon: 'barcode-outline' },
+  { key: 'lotes', label: 'Lotes', icon: 'layers-outline' },
+  { key: 'cupom', label: 'Cupom', icon: 'pricetag-outline' },
+  { key: 'cortesias', label: 'Cortesias', icon: 'gift-outline' },
+  { key: 'transferencia', label: 'Transferência', icon: 'swap-horizontal-outline' },
+  { key: 'portaria', label: 'Portaria', icon: 'qr-code-outline' },
+  { key: 'retiradas', label: 'Retiradas', icon: 'cash-outline' },
+  { key: 'termos', label: 'Termos de uso', icon: 'document-text-outline' },
+  { key: 'historico', label: 'Validação', icon: 'checkmark-circle-outline' },
 ];
 
-const DELIVERY_TABS: { key: EventSection; label: string }[] = [
-  { key: 'envio', label: 'Participantes' },
-  { key: 'portaria', label: 'Portaria' },
-  { key: 'transferencia', label: 'Transferência' },
-  { key: 'historico', label: 'Validação' },
-  { key: 'termos', label: 'Termos de uso' },
+const DELIVERY_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'envio', label: 'Participantes', icon: 'people-outline' },
+  { key: 'portaria', label: 'Portaria', icon: 'qr-code-outline' },
+  { key: 'transferencia', label: 'Transferência', icon: 'swap-horizontal-outline' },
+  { key: 'historico', label: 'Validação', icon: 'checkmark-circle-outline' },
+  { key: 'termos', label: 'Termos de uso', icon: 'document-text-outline' },
 ];
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -78,12 +91,14 @@ function ChannelCard({
   netColor,
   data,
   methods,
+  countUnit = 'ingresso',
 }: {
   title: string;
   accent: string;
   netColor: string;
   data: FinanceChannel;
   methods?: { label: string; value: number; count: number }[];
+  countUnit?: string;
 }) {
   const lines = (methods ?? []).filter((item) => item.count > 0);
   return (
@@ -91,7 +106,8 @@ function ChannelCard({
       <View style={styles.channelTop}>
         <Text style={styles.channelTitle}>{title}</Text>
         <Text style={styles.channelCount}>
-          {data.count} ingresso{data.count === 1 ? '' : 's'}
+          {data.count} {countUnit}
+          {data.count === 1 ? '' : 's'}
         </Text>
       </View>
       <View style={styles.channelGrid}>
@@ -124,6 +140,17 @@ function ChannelCard({
       ) : null}
     </View>
   );
+}
+
+function groupBatches(batches: EventBatch[]) {
+  const groups: { key: string; label: string; items: EventBatch[] }[] = [];
+  for (const batch of batches) {
+    const label = batch.sector?.trim() || batch.name;
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(batch);
+    else groups.push({ key: batch.id, label, items: [batch] });
+  }
+  return groups;
 }
 
 function Kpi({
@@ -211,9 +238,13 @@ export default function EventoScreen() {
   const [finance, setFinance] = useState<EventFinance | null>(null);
   const [financeBusy, setFinanceBusy] = useState(false);
   const [financeError, setFinanceError] = useState<string | null>(null);
+  const [boletos, setBoletos] = useState<EventBoletos | null>(null);
+  const [boletosError, setBoletosError] = useState<string | null>(null);
   const [newBatchOpen, setNewBatchOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<EventBatch | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [hiddenOverride, setHiddenOverride] = useState<boolean | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function copyText(value: string, message: string) {
@@ -229,6 +260,8 @@ export default function EventoScreen() {
     setFinance(null);
     setFinanceError(null);
     setFinanceBusy(false);
+    setBoletos(null);
+    setBoletosError(null);
     setHiddenOverride(null);
   }, [id]);
 
@@ -264,11 +297,27 @@ export default function EventoScreen() {
     if (!soft) setFinanceBusy(true);
     setFinanceError(null);
     try {
-      setFinance(await fetchEventFinance(id));
-    } catch (caught) {
-      setFinanceError(
-        caught instanceof Error ? caught.message : 'Não foi possível carregar o financeiro.'
-      );
+      const [financeResult, boletoResult] = await Promise.allSettled([
+        fetchEventFinance(id),
+        fetchEventBoletos(id),
+      ]);
+      if (financeResult.status === 'fulfilled') {
+        setFinance(financeResult.value);
+      } else {
+        const caught = financeResult.reason;
+        setFinanceError(
+          caught instanceof Error ? caught.message : 'Não foi possível carregar o financeiro.'
+        );
+      }
+      if (boletoResult.status === 'fulfilled') {
+        setBoletos(boletoResult.value);
+        setBoletosError(null);
+      } else {
+        const caught = boletoResult.reason;
+        setBoletosError(
+          caught instanceof Error ? caught.message : 'Não foi possível carregar os boletos.'
+        );
+      }
     } finally {
       setFinanceBusy(false);
     }
@@ -279,7 +328,7 @@ export default function EventoScreen() {
   }, [load]);
 
   useEffect(() => {
-    if (section !== 'financeiro' || !id || finance || financeBusy || financeError) return;
+    if ((section !== 'financeiro' && section !== 'boletos') || !id || finance || financeBusy || financeError) return;
     void loadFinance();
   }, [section, id, finance, financeBusy, financeError, loadFinance]);
 
@@ -310,7 +359,61 @@ export default function EventoScreen() {
   const isHidden = hiddenOverride ?? event.is_hidden;
   const delivery = event.hidden_event_type === 'ticket_delivery';
   const tabs = delivery ? DELIVERY_TABS : EVENT_TABS;
-  const openLink = `${siteUrl}/abrir/${event.id}`;
+  const sharePath = event.hidden_share_path?.trim();
+  const openLink = `${siteUrl}/abrir/${encodeURIComponent(sharePath || event.id)}`;
+  const showBoletos = boletoHistoryVisible(boletos);
+  const boletoGross = showBoletos && boletos ? boletos.totals.gross : 0;
+  const boletoFees = showBoletos && boletos ? boletos.totals.fees : 0;
+  const boletoNet = showBoletos && boletos ? boletos.totals.net : 0;
+  const boletoChannel: FinanceChannel | null =
+    showBoletos && boletos
+      ? {
+          count: boletos.totals.generated,
+          gross: boletos.totals.gross,
+          bank: 0,
+          gate8: boletos.totals.fees,
+          net: boletos.totals.net,
+          pix: 0,
+          credit_card: 0,
+          debit: 0,
+          cash: 0,
+          pixCount: 0,
+          creditCount: 0,
+          debitCount: 0,
+          cashCount: 0,
+        }
+      : null;
+
+  async function moveLot(batchId: string, delta: number) {
+    if (ended || reordering) return;
+    const index = batches.findIndex((batch) => batch.id === batchId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= batches.length) return;
+    const previous = batches;
+    const next = batches.slice();
+    const current = next[index];
+    const other = next[target];
+    if (!current || !other) return;
+    next[index] = other;
+    next[target] = current;
+    setReordering(true);
+    setDetail((value) => (value ? { ...value, batches: next } : value));
+    try {
+      await reorderTicketBatches(event.id, next.map((batch) => batch.id));
+    } catch (caught) {
+      setDetail((value) => (value ? { ...value, batches: previous } : value));
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast(caught instanceof Error ? caught.message : 'Não foi possível mudar a ordem dos lotes.');
+      toastTimer.current = setTimeout(() => setToast(null), 2800);
+      setReordering(false);
+      return;
+    }
+    try {
+      await load(true);
+    } finally {
+      setReordering(false);
+    }
+  }
 
   async function changeHidden(next: boolean) {
     if (next === isHidden) return;
@@ -347,7 +450,7 @@ export default function EventoScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          section === 'financeiro' && !finance && styles.contentFill,
+          (section === 'financeiro' || section === 'boletos') && !finance && styles.contentFill,
         ]}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -357,7 +460,7 @@ export default function EventoScreen() {
               setRefreshing(true);
               setReloadKey((value) => value + 1);
               void load(true);
-              if (section === 'financeiro') void loadFinance(true);
+              if (section === 'financeiro' || section === 'boletos') void loadFinance(true);
             }}
             tintColor={colors.blue}
           />
@@ -399,15 +502,24 @@ export default function EventoScreen() {
             </View>
           </View>
           {isHidden ? (
-            <Pressable
-              onPress={() => void copyText(openLink, 'Link copiado para a área de transferência')}
-              style={({ pressed }) => [styles.openLink, pressed && styles.pressed]}
-            >
-              <Text style={styles.openLinkValue} numberOfLines={1} selectable={false} pointerEvents="none">
-                {openLink}
-              </Text>
-              <Ionicons name="copy-outline" size={16} color={colors.blue} />
-            </Pressable>
+            <View style={styles.openLinkRow}>
+              <Pressable
+                onPress={() => void copyText(openLink, 'Link copiado para a área de transferência')}
+                style={({ pressed }) => [styles.openLink, pressed && styles.pressed]}
+              >
+                <Text style={styles.openLinkValue} numberOfLines={1} selectable={false} pointerEvents="none">
+                  {openLink}
+                </Text>
+                <Ionicons name="copy-outline" size={16} color={colors.blue} />
+              </Pressable>
+              <Pressable
+                onPress={() => setQrOpen(true)}
+                accessibilityLabel="Compartilhar QR Code do evento"
+                style={({ pressed }) => [styles.qrBtn, pressed && styles.pressed]}
+              >
+                <Ionicons name="qr-code-outline" size={18} color={colors.text} />
+              </Pressable>
+            </View>
           ) : null}
         </View>
         )}
@@ -427,17 +539,17 @@ export default function EventoScreen() {
           style={styles.tabs}
           contentContainerStyle={styles.tabsInner}
         >
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab.key}
-              onPress={() => setSection(tab.key)}
-              style={[styles.tab, section === tab.key && styles.tabOn]}
-            >
-              <Text style={[styles.tabText, section === tab.key && styles.tabTextOn]} numberOfLines={1}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
+          {tabs.map((tab) => {
+            const active = section === tab.key;
+            return (
+              <Pressable key={tab.key} onPress={() => setSection(tab.key)} style={styles.tab}>
+                <Ionicons name={tab.icon} size={22} color={active ? colors.blue : 'rgba(255,255,255,0.72)'} />
+                <Text style={[styles.tabText, active && styles.tabTextOn]} numberOfLines={2}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
 
         {section === 'envio' && delivery ? (
@@ -467,48 +579,98 @@ export default function EventoScreen() {
               </Pressable>
             )}
             {batches.length === 0 ? <Text style={styles.empty}>Nenhum lote cadastrado.</Text> : null}
-            {batches.map((batch) => {
-              const soldOut = !ended && batch.sold >= batch.quantity && batch.quantity > 0;
-              const inactive = ended || batch.active === false;
-              const genderLabel =
-                batch.gender === 'masculino'
-                  ? 'Masculino'
-                  : batch.gender === 'feminino'
-                    ? 'Feminino'
-                    : null;
-              return (
-                <View key={batch.id} style={[styles.lot, ended && styles.lotDisabled]}>
-                  <View style={styles.lotTop}>
-                    <Text style={styles.lotName}>{batchTicketName(batch)}</Text>
-                    {ended ? null : (
-                      <Pressable
-                        onPress={() => {
-                          setEditingBatch(batch);
-                          setNewBatchOpen(true);
-                        }}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.lotEdit, pressed && styles.pressed]}
-                      >
-                        <Ionicons name="pencil" size={15} color={colors.blue} />
-                      </Pressable>
-                    )}
-                    <Text
-                      style={[
-                        styles.lotBadge,
-                        soldOut ? styles.lotSoldOut : inactive ? styles.lotOff : styles.lotOn,
-                      ]}
-                    >
-                      {ended ? 'Desativado' : soldOut ? 'Esgotado' : batch.active === false ? 'Pausado' : 'Ativo / À venda'}
-                    </Text>
-                  </View>
-                  {batch.sector ? <Text style={styles.lotMeta}>{batch.sector}</Text> : null}
-                  <Text style={styles.lotMeta}>
-                    {formatBRL(batch.price)} · {batch.sold}/{batch.quantity} vendidos
-                    {genderLabel ? ` · ${genderLabel}` : ''}
-                  </Text>
-                </View>
-              );
-            })}
+            {groupBatches(batches).map((group) => (
+              <View key={group.key} style={styles.lotGroup}>
+                <Text style={styles.lotSector}>{group.label}</Text>
+                {group.items.map((batch) => {
+                  const soldOut = !ended && batch.sold >= batch.quantity && batch.quantity > 0;
+                  const inactive = ended || batch.active === false;
+                  const openSale = !ended && batch.quantity <= 0;
+                  const genderLabel =
+                    batch.gender === 'masculino'
+                      ? 'Masculino'
+                      : batch.gender === 'feminino'
+                        ? 'Feminino'
+                        : null;
+                  const first = batches[0]?.id === batch.id;
+                  const last = batches[batches.length - 1]?.id === batch.id;
+                  return (
+                    <View key={batch.id} style={[styles.lot, ended && styles.lotDisabled]}>
+                      <View style={styles.lotMain}>
+                        <View style={styles.lotTop}>
+                          <Text style={styles.lotName}>{batchTicketName(batch)}</Text>
+                          <Text
+                            style={[
+                              styles.lotBadge,
+                              soldOut
+                                ? styles.lotSoldOut
+                                : inactive
+                                  ? styles.lotOff
+                                  : styles.lotOn,
+                            ]}
+                          >
+                            {ended
+                              ? 'Desativado'
+                              : soldOut
+                                ? 'Esgotado'
+                                : batch.active === false
+                                  ? 'Pausado'
+                                  : openSale
+                                    ? 'Venda livre'
+                                    : 'Ativo / À venda'}
+                          </Text>
+                        </View>
+                        <Text style={styles.lotMeta}>
+                          {formatBRL(batch.price)} ·{' '}
+                          {openSale ? `${batch.sold} vendidos` : `${batch.sold}/${batch.quantity} vendidos`}
+                          {genderLabel ? ` · ${genderLabel}` : ''}
+                        </Text>
+                      </View>
+                      {ended ? null : (
+                        <View style={styles.lotActions}>
+                          <Pressable
+                            disabled={reordering || first}
+                            onPress={() => void moveLot(batch.id, -1)}
+                            hitSlop={6}
+                            accessibilityLabel={`Subir ${batchTicketName(batch)}`}
+                            style={({ pressed }) => [
+                              styles.lotArrow,
+                              (reordering || first) && styles.lotArrowOff,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Ionicons name="arrow-up" size={16} color={colors.text} />
+                          </Pressable>
+                          <Pressable
+                            disabled={reordering || last}
+                            onPress={() => void moveLot(batch.id, 1)}
+                            hitSlop={6}
+                            accessibilityLabel={`Descer ${batchTicketName(batch)}`}
+                            style={({ pressed }) => [
+                              styles.lotArrow,
+                              (reordering || last) && styles.lotArrowOff,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Ionicons name="arrow-down" size={16} color={colors.text} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              setEditingBatch(batch);
+                              setNewBatchOpen(true);
+                            }}
+                            hitSlop={8}
+                            style={({ pressed }) => [styles.lotEdit, pressed && styles.pressed]}
+                          >
+                            <Ionicons name="pencil" size={15} color={colors.blue} />
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -650,6 +812,15 @@ export default function EventoScreen() {
                     { label: 'PIX', value: finance.pos.pix, count: finance.pos.pixCount },
                   ]}
                 />
+                {boletoChannel ? (
+                  <ChannelCard
+                    title="Boletos"
+                    accent={colors.blue}
+                    netColor="#3B9BFF"
+                    countUnit="boleto"
+                    data={boletoChannel}
+                  />
+                ) : null}
 
                 <View style={styles.kpiGrid}>
                   <Kpi label="Ingressos pagos" value={String(finance.totals.paid)} />
@@ -670,17 +841,16 @@ export default function EventoScreen() {
                     }`}
                     tone="danger"
                   />
-                  <Kpi label="Bruto" value={formatBRL(finance.totals.gross)} />
+                  <Kpi label="Bruto" value={formatBRL(finance.totals.gross + boletoGross)} />
                   <Kpi
                     label="Taxas"
-                    value={formatBRL(finance.totals.serviceFee + finance.totals.bankFee)}
-                    hint={
-                      finance.producerMode
-                        ? `Taxa produtor ${finance.producerPercent.toLocaleString('pt-BR')}%`
-                        : `Serviço ${formatBRL(finance.totals.serviceFee)} + Banco ${formatBRL(finance.totals.bankFee)}`
-                    }
+                    value={formatBRL(finance.totals.serviceFee + finance.totals.bankFee + boletoFees)}
                   />
-                  <Kpi label="Valor líquido do evento" value={formatBRL(finance.totals.net)} tone="net" />
+                  <Kpi
+                    label="Valor líquido do evento"
+                    value={formatBRL(finance.totals.net + boletoNet)}
+                    tone="net"
+                  />
                 </View>
                 <Text style={styles.financeHint}>
                   Cada compra, cupom e estorno ficam detalhados no financeiro do site.
@@ -690,6 +860,10 @@ export default function EventoScreen() {
               <Text style={styles.empty}>Nenhum dado financeiro neste evento.</Text>
             )}
           </View>
+        ) : null}
+
+        {section === 'boletos' ? (
+          <BoletosSection report={boletos} busy={financeBusy} error={boletosError} />
         ) : null}
 
         {section === 'retiradas' ? (
@@ -741,6 +915,17 @@ export default function EventoScreen() {
           </View>
         </View>
       ) : null}
+      <EventQrModal
+        visible={qrOpen}
+        url={openLink}
+        eventName={event.name}
+        onClose={() => setQrOpen(false)}
+        onToast={(message) => {
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          setToast(message);
+          toastTimer.current = setTimeout(() => setToast(null), 2800);
+        }}
+      />
       <NewBatchModal
         visible={newBatchOpen}
         eventId={event.id}
@@ -887,7 +1072,13 @@ const styles = StyleSheet.create({
   hiddenOptionTextOn: {
     color: colors.loginText,
   },
+  openLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   openLink: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -897,6 +1088,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  qrBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   openLinkValue: {
     flex: 1,
@@ -937,28 +1138,27 @@ const styles = StyleSheet.create({
   },
   tabsInner: {
     flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 16,
+    alignItems: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 12,
   },
   tab: {
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: 999,
+    width: 76,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    justifyContent: 'flex-start',
+    gap: 6,
+    paddingVertical: 2,
     flexShrink: 0,
-  },
-  tabOn: {
-    backgroundColor: colors.blue,
   },
   tabText: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '600',
+    textAlign: 'center',
   },
   tabTextOn: {
-    color: colors.loginText,
+    color: colors.blue,
   },
   block: {
     marginTop: 18,
@@ -1006,6 +1206,17 @@ const styles = StyleSheet.create({
     marginTop: 24,
     paddingHorizontal: 16,
   },
+  lotGroup: {
+    marginBottom: 14,
+  },
+  lotSector: {
+    color: colors.blue,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
   lot: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
@@ -1013,6 +1224,28 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  lotMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  lotActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  lotArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lotArrowOff: {
+    opacity: 0.25,
   },
   lotDisabled: {
     opacity: 0.55,

@@ -195,6 +195,13 @@ function money(value: number) {
   return Number(value.toFixed(2));
 }
 
+/** Fallback só quando o servidor não enviou o campo. Zero explícito permanece zero. */
+function rateOr(value: unknown, fallback: number) {
+  if (value == null || value === '') return fallback;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function isCancelledStatus(value: unknown) {
   const status = text(value).trim().toLowerCase();
   return [
@@ -461,11 +468,11 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
 
   const tables = new Map(tableRows.map((row) => [text(row.id), row]));
   const detailed = fees?.siteFeesDetailed;
-  const pixGate8 = num(detailed?.pix?.gate8);
-  const creditGate8 = num(detailed?.credit?.gate8);
-  const pixBank = num(detailed?.pix?.bank) || PIX_BANK;
-  const creditBank = num(detailed?.credit?.bank) || CREDIT_BANK;
-  const producerPercent = num(fees?.producerPercent);
+  const pixGate8 = rateOr(detailed?.pix?.gate8, 0);
+  const creditGate8 = rateOr(detailed?.credit?.gate8, 0);
+  const pixBank = rateOr(detailed?.pix?.bank, PIX_BANK);
+  const creditBank = rateOr(detailed?.credit?.bank, CREDIT_BANK);
+  const producerPercent = fees?.producerPercent == null ? 0 : num(fees.producerPercent);
   const producerMode = producerPercent > 0;
   const posFees = {
     credit: num(fees?.posFees?.credit),
@@ -487,6 +494,9 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         pos.ticketIds.has(text(ticket.id)) ||
         (!!purchaseId && pos.purchaseIds.has(purchaseId)));
     if (!courtesy && !isPos && !purchaseId) continue;
+    // Ingressos liberados depois da quitação do boleto já entram no acompanhamento
+    // de boletos. Mantê-los aqui duplicaria bruto, taxa e líquido.
+    if (method === 'boleto') continue;
 
     let unit = ticketPrice(ticket, tables);
     if (isPos && !(unit > 0)) {
@@ -566,17 +576,6 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
   }
 
   const purchases = Array.from(groups.values()).map((group) => {
-    if (
-      !(group.couponDiscount > 0) &&
-      !group.isCancelled &&
-      !group.isCourtesy &&
-      !group.isPos &&
-      !producerMode &&
-      group.snapshotKnown
-    ) {
-      const inferred = money(group.gross - group.snapshotNet);
-      if (inferred >= 0.01) group.couponDiscount = inferred;
-    }
     if (group.isPos && !(group.billableGross > 0) && group.paidKnown && group.paidTotal > 0) {
       group.gross = group.paidTotal;
       group.billableGross = group.paidTotal;
@@ -593,9 +592,19 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       } else if (group.snapshotKnown) {
         if (group.paidKnown) group.financialGross = group.paidTotal;
         bankFee = group.snapshotBankFee;
+        if (
+          bankFee === 0 &&
+          (group.method === 'pix' || group.method === 'credit_card')
+        ) {
+          const rate = group.method === 'pix' ? pixBank : creditBank;
+          const base = group.paidKnown ? group.paidTotal : group.billableGross;
+          bankFee = base * (rate / 100);
+        }
         serviceFee = group.snapshotGate8Fee;
       } else if (producerMode) {
         serviceFee = group.billableGross * (producerPercent / 100);
+        if (group.method === 'pix') bankFee = group.gross * (pixBank / 100);
+        else if (group.method === 'credit_card') bankFee = group.gross * (creditBank / 100);
       } else {
         const extra = group.paidKnown
           ? Math.max(0, money(group.paidTotal - group.billableGross))
@@ -612,11 +621,8 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         }
       }
     }
-    const net =
-      group.isPos || !group.snapshotKnown
-        ? group.financialGross - serviceFee - bankFee
-        : group.snapshotNet;
-    const hasCoupon = Boolean(group.couponCode) || group.couponDiscount > 0;
+    const net = group.financialGross - serviceFee - bankFee;
+    const hasCoupon = Boolean(group.couponCode) && group.couponDiscount > 0;
     return {
       key: group.key,
       purchaseCode: group.purchaseCode,

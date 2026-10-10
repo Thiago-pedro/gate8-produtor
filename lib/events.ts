@@ -27,6 +27,7 @@ export type EventBatch = {
   active: boolean | null;
   valid_from: string | null;
   valid_until: string | null;
+  sort_order: number | null;
 };
 
 export type EventCheckin = {
@@ -52,6 +53,7 @@ export type ProducerEventDetail = {
     is_ended: boolean | null;
     is_hidden: boolean;
     hidden_event_type: 'party' | 'ticket_delivery' | null;
+    hidden_share_path: string | null;
   };
   batches: EventBatch[];
   sold: number;
@@ -147,6 +149,30 @@ async function restPatch(path: string, body: unknown) {
 
 export async function setEventHidden(eventId: string, hidden: boolean) {
   await restPatch(`events?id=eq.${encodeURIComponent(eventId)}`, { is_hidden: hidden });
+}
+
+export async function reorderTicketBatches(eventId: string, batchIds: string[]) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/reorder_ticket_batches`, {
+    method: 'POST',
+    headers: await headers(),
+    body: JSON.stringify({ _event_id: eventId, _batch_ids: batchIds }),
+  });
+  const raw = await response.text();
+  let parsed: unknown = null;
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      parsed = null;
+    }
+  }
+  if (!response.ok) {
+    const message =
+      parsed && typeof parsed === 'object' && parsed !== null && 'message' in parsed
+        ? String((parsed as { message?: string }).message)
+        : null;
+    throw new Error(message || 'Não foi possível mudar a ordem dos lotes.');
+  }
 }
 
 async function restCount(path: string): Promise<number | null> {
@@ -318,6 +344,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
 
   const batches = (
     await firstRest([
+      `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until,sort_order&event_id=eq.${id}&order=sort_order.asc,created_at.asc,id.asc`,
       `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
       `ticket_batches?select=id,name,sector,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
     ])
@@ -332,6 +359,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     active: batch.active == null ? true : Boolean(batch.active),
     valid_from: batch.valid_from ? text(batch.valid_from) : null,
     valid_until: batch.valid_until ? text(batch.valid_until) : null,
+    sort_order: batch.sort_order == null || batch.sort_order === '' ? null : num(batch.sort_order),
   }));
 
   const sold = batches.reduce((sum, batch) => sum + batch.sold, 0);
@@ -441,6 +469,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
         row.hidden_event_type === 'ticket_delivery' || row.hidden_event_type === 'party'
           ? row.hidden_event_type
           : null,
+      hidden_share_path: row.hidden_share_path ? text(row.hidden_share_path) : null,
     },
     batches,
     sold: isDelivery ? issued : soldCount,

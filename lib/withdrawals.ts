@@ -1,4 +1,5 @@
 import { getAccessToken, getAuthUser } from '@/lib/auth';
+import { boletoHistoryVisible, fetchEventBoletos } from '@/lib/boletos';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { fetchEventFinance } from '@/lib/finance';
 import { callServerFn } from '@/lib/server-fn';
@@ -129,13 +130,14 @@ export function withdrawalStatusLabel(status: string) {
 
 export async function fetchWithdrawalSummary(eventId: string): Promise<WithdrawalSummary> {
   const encoded = encodeURIComponent(eventId);
-  const [eventRows, requestRows, summaryRaw, finance] = await Promise.all([
+  const [eventRows, requestRows, summaryRaw, finance, boletos] = await Promise.all([
     rest<Row[]>(`events?select=created_by&id=eq.${encoded}`),
     rest<Row[]>(
       `withdrawal_requests?select=id,status,amount_net,amount_gross,amount_fees,created_at,paid_at,notes&event_id=eq.${encoded}&order=created_at.desc`
     ),
     callServerFn<unknown>(FN_SUMMARY, { eventId }).catch(() => null),
     fetchEventFinance(eventId).catch(() => null),
+    fetchEventBoletos(eventId).catch(() => null),
   ]);
 
   const summary = summaryRow(summaryRaw);
@@ -147,18 +149,25 @@ export async function fetchWithdrawalSummary(eventId: string): Promise<Withdrawa
     .filter((item) => item.status !== 'rejected')
     .reduce((sum, item) => sum + item.amountNet, 0);
 
-  const financeGate8 = finance ? finance.totals.serviceFee : null;
-  const financeBank = finance ? finance.totals.bankFee : null;
-  const fromFnGate8 = amount(summary, ['serviceFees', 'service_fees', 'gate8', 'gate8_fee']);
-  const fromFnBank = amount(summary, ['bankFees', 'bank_fees', 'pagarme', 'pagarme_fee']);
-  const hasSplit = (fromFnGate8 ?? 0) > 0 && (fromFnBank ?? 0) > 0;
+  const boleto = boletoHistoryVisible(boletos) && boletos ? boletos.totals : null;
+  const serverGross = amount(summary, ['gross', 'amount_gross']);
+  const serverService = amount(summary, ['serviceFees', 'service_fees', 'gate8', 'gate8_fee']);
+  const serverBank = amount(summary, ['bankFees', 'bank_fees']);
+  const serverNet = amount(summary, ['net', 'withdrawableNet', 'withdrawable_net']);
 
-  const gross =
-    amount(summary, ['gross', 'amount_gross']) ??
-    (finance ? finance.totals.gross : 0);
-  const serviceFees = hasSplit ? (fromFnGate8 ?? 0) : (financeGate8 ?? fromFnGate8 ?? 0);
-  const bankFees = hasSplit ? (fromFnBank ?? 0) : (financeBank ?? fromFnBank ?? 0);
-  const net = money(gross - serviceFees - bankFees);
+  // O mesmo líquido da aba Financeiro: Pix, cartão e maquininha, mais o boleto
+  // pelo valor compensado menos a taxa de emissão. O bruto do boleto ainda não
+  // compensado não entra como dinheiro disponível.
+  const gross = finance
+    ? finance.totals.gross + (boleto?.gross ?? 0)
+    : (serverGross ?? 0);
+  const serviceFees = finance
+    ? finance.totals.serviceFee + (boleto?.fees ?? 0)
+    : (serverService ?? 0);
+  const bankFees = finance ? finance.totals.bankFee : (serverBank ?? 0);
+  const net = finance
+    ? finance.totals.net + (boleto?.net ?? 0)
+    : (serverNet ?? money(gross - serviceFees - bankFees));
   const fees = money(serviceFees + bankFees);
 
   return {
@@ -166,7 +175,7 @@ export async function fetchWithdrawalSummary(eventId: string): Promise<Withdrawa
     fees,
     serviceFees: money(serviceFees),
     bankFees: money(bankFees),
-    net,
+    net: money(net),
     available: money(Math.max(0, net - reserved)),
     withdrawnPaid: money(withdrawnPaid),
     hasPending: requests.some((item) => item.status === 'pending'),

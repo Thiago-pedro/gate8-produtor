@@ -105,6 +105,47 @@ export async function hasProducerProfile(userId: string) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+function greetingName(value: string) {
+  const cleaned = value.trim();
+  if (!cleaned || cleaned.includes('@')) return '';
+  return cleaned.split(/\s+/)[0] ?? '';
+}
+
+export async function fetchProducerFirstName(userId: string) {
+  const id = encodeURIComponent(userId);
+  let producer: Record<string, unknown> | null = null;
+  try {
+    const rows = await rest<Record<string, unknown>[]>(
+      `producer_profiles?select=kind,full_name,brand_name,trade_name&user_id=eq.${id}&limit=1`
+    );
+    producer = Array.isArray(rows) ? (rows[0] ?? null) : null;
+  } catch {
+    producer = null;
+  }
+
+  let profileName = '';
+  try {
+    const rows = await rest<Record<string, unknown>[]>(
+      `profiles?select=full_name&id=eq.${id}&limit=1`
+    );
+    profileName = text(Array.isArray(rows) ? (rows[0] ?? null) : null, 'full_name');
+  } catch {
+    profileName = '';
+  }
+
+  const kind = text(producer, 'kind');
+  const candidates = [
+    text(producer, 'full_name'),
+    profileName,
+    kind === 'company' ? text(producer, 'trade_name') : text(producer, 'brand_name'),
+  ];
+  for (const candidate of candidates) {
+    const name = greetingName(candidate);
+    if (name) return name;
+  }
+  return '';
+}
+
 export async function fetchClientProfile(userId: string): Promise<ClientProfile> {
   const rows = await rest<Record<string, unknown>[]>(
     `profiles?select=full_name,cpf,phone,city,state,birth_date&id=eq.${encodeURIComponent(userId)}`

@@ -14,6 +14,7 @@ import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { fetchProducerEvents, isOpenEvent, type ProducerEvent } from '@/lib/events';
 import { formatEventDate } from '@/lib/format';
+import { fetchProducerFirstName } from '@/lib/producer';
 import { useProducer } from '@/lib/producer-context';
 
 function formatDate(value: string | null) {
@@ -38,6 +39,7 @@ export default function HomeScreen() {
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<EventFilter>('active');
+  const [producerName, setProducerName] = useState('');
   const sawList = useRef(false);
 
   async function leaveAccount() {
@@ -54,6 +56,17 @@ export default function HomeScreen() {
     }
     if (status === 'guest') router.replace('/convite');
   }, [loading, producerLoading, router, status, user]);
+
+  useEffect(() => {
+    if (!user?.id || status !== 'producer') return;
+    let alive = true;
+    void fetchProducerFirstName(user.id).then((name) => {
+      if (alive) setProducerName(name);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [status, user?.id]);
 
   const load = useCallback(async (soft = false) => {
     if (!user) return;
@@ -116,7 +129,7 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      <Text style={styles.hello}>Olá{user.name ? `, ${user.name.split(' ')[0]}` : ''}</Text>
+      <Text style={styles.hello}>Olá{producerName ? `, ${producerName}` : ''}</Text>
       <View style={styles.leadRow}>
         <Text style={styles.lead}>Meus eventos</Text>
         <Pressable
