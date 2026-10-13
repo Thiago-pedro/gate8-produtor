@@ -22,6 +22,7 @@ import { TransferenciasSection } from '@/components/TransferenciasSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
 import {
+  batchIssuanceLabel,
   batchTicketName,
   fetchProducerEventDetail,
   isOpenEvent,
@@ -625,6 +626,19 @@ export default function EventoScreen() {
                           {openSale ? `${batch.sold} vendidos` : `${batch.sold}/${batch.quantity} vendidos`}
                           {genderLabel ? ` · ${genderLabel}` : ''}
                         </Text>
+                        <Text style={styles.lotMeta}>{batchIssuanceLabel(batch)}</Text>
+                        {batch.prerequisite_batch_id ? (
+                          <Text style={styles.lotRequire}>
+                            Exige compra confirmada de{' '}
+                            {batchTicketName(
+                              batches.find((item) => item.id === batch.prerequisite_batch_id) ?? {
+                                name: 'outro lote',
+                                sector: null,
+                              }
+                            )}{' '}
+                            ou os dois no mesmo carrinho.
+                          </Text>
+                        ) : null}
                       </View>
                       {ended ? null : (
                         <View style={styles.lotActions}>
@@ -1296,6 +1310,12 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 4,
+  },
+  lotRequire: {
+    color: '#f5c542',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
   },
   row: {
     flexDirection: 'row',

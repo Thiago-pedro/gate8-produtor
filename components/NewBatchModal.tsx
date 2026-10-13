@@ -19,6 +19,7 @@ import { colors } from '@/constants/theme';
 import {
   BATCH_GENDERS,
   asBatchGender,
+  batchIssuanceLabel,
   batchTicketName,
   createTicketBatch,
   updateTicketBatch,
@@ -144,6 +145,9 @@ export function NewBatchModal({
   const [gender, setGender] = useState<BatchGender>('unisex');
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState('');
+  const [ticketsPerPurchase, setTicketsPerPurchase] = useState('1');
+  const [complimentaryPerPurchase, setComplimentaryPerPurchase] = useState('0');
+  const [prerequisiteBatchId, setPrerequisiteBatchId] = useState('');
   const [validFrom, setValidFrom] = useState<Date | null>(null);
   const [validUntil, setValidUntil] = useState<Date | null>(null);
   const [active, setActive] = useState(true);
@@ -156,7 +160,10 @@ export function NewBatchModal({
     setLabel(batch ? batchTicketName(batch) : '');
     setGender(asBatchGender(batch?.gender ?? null));
     setPrice(batch ? String(batch.price) : '');
-    setQuantity(batch ? String(batch.quantity) : '');
+    setQuantity(batch && batch.quantity > 0 ? String(batch.quantity) : '');
+    setTicketsPerPurchase(batch ? String(batch.tickets_per_purchase || 1) : '1');
+    setComplimentaryPerPurchase(batch ? String(batch.complimentary_per_purchase || 0) : '0');
+    setPrerequisiteBatchId(batch?.prerequisite_batch_id ?? '');
     setValidFrom(toDate(batch?.valid_from ?? null));
     setValidUntil(toDate(batch?.valid_until ?? null));
     setActive(batch?.active !== false);
@@ -167,12 +174,17 @@ export function NewBatchModal({
   async function submit() {
     setError(null);
     setBusy(true);
+    const issued = ticketsPerPurchase.trim() ? Math.floor(Number(ticketsPerPurchase)) : 1;
+    const complimentary = complimentaryPerPurchase.trim() ? Math.floor(Number(complimentaryPerPurchase)) : 0;
     const fields = {
       sector,
       label,
       gender,
       price: price.trim() ? parseMoney(price) : 0,
       quantity: quantity.trim() ? Math.floor(Number(quantity.replace(',', '.'))) : 0,
+      ticketsPerPurchase: issued,
+      complimentaryPerPurchase: complimentary,
+      prerequisiteBatchId: prerequisiteBatchId || null,
       validFrom: validFrom ? validFrom.toISOString() : null,
       validUntil: validUntil ? validUntil.toISOString() : null,
       active,
@@ -281,16 +293,81 @@ export function NewBatchModal({
                 />
               </View>
               <View style={[styles.field, styles.half]}>
-                <Text style={styles.label}>Quantidade</Text>
+                <Text style={styles.label}>Quantidade (opcional)</Text>
                 <TextInput
                   value={quantity}
                   onChangeText={setQuantity}
                   keyboardType="number-pad"
-                  placeholder="0"
+                  placeholder="Venda livre"
                   placeholderTextColor="rgba(255,255,255,0.28)"
                   style={styles.input}
                 />
               </View>
+            </View>
+            <Text style={styles.hint}>
+              O preço é o total da unidade comprada, já com as cortesias. Vazio ou 0 na quantidade é venda livre, sem limite de estoque.
+            </Text>
+
+            <View style={styles.issueBox}>
+              <Text style={styles.toggleTitle}>Ingressos por compra</Text>
+              <View style={styles.row}>
+                <View style={[styles.field, styles.half]}>
+                  <Text style={styles.label}>Ingressos emitidos por unidade</Text>
+                  <TextInput
+                    value={ticketsPerPurchase}
+                    onChangeText={setTicketsPerPurchase}
+                    keyboardType="number-pad"
+                    placeholder="1"
+                    placeholderTextColor="rgba(255,255,255,0.28)"
+                    style={styles.input}
+                  />
+                </View>
+                <View style={[styles.field, styles.half]}>
+                  <Text style={styles.label}>Desses, quantos são cortesias?</Text>
+                  <TextInput
+                    value={complimentaryPerPurchase}
+                    onChangeText={setComplimentaryPerPurchase}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="rgba(255,255,255,0.28)"
+                    style={styles.input}
+                  />
+                </View>
+              </View>
+              <Text style={styles.hint}>
+                {batchIssuanceLabel({
+                  tickets_per_purchase: Math.max(1, Math.floor(Number(ticketsPerPurchase)) || 1),
+                  complimentary_per_purchase: Math.max(0, Math.floor(Number(complimentaryPerPurchase)) || 0),
+                })}
+              </Text>
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Exigir compra de outro lote (opcional)</Text>
+              <View style={styles.chips}>
+                <Pressable
+                  onPress={() => setPrerequisiteBatchId('')}
+                  style={[styles.chip, !prerequisiteBatchId && styles.chipOn]}
+                >
+                  <Text style={[styles.chipText, !prerequisiteBatchId && styles.chipTextOn]}>Sem requisito</Text>
+                </Pressable>
+                {batches
+                  .filter((item) => item.id !== batch?.id)
+                  .map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => setPrerequisiteBatchId(item.id)}
+                      style={[styles.chip, prerequisiteBatchId === item.id && styles.chipOn]}
+                    >
+                      <Text style={[styles.chipText, prerequisiteBatchId === item.id && styles.chipTextOn]}>
+                        {batchTicketName(item)}
+                      </Text>
+                    </Pressable>
+                  ))}
+              </View>
+              <Text style={styles.hint}>
+                O cliente deve ter a compra do lote exigido confirmada na própria conta ou incluir os dois lotes no mesmo carrinho.
+              </Text>
             </View>
 
             <View style={styles.row}>
@@ -486,6 +563,15 @@ const styles = StyleSheet.create({
     color: colors.blue,
     fontWeight: '700',
     fontSize: 13,
+  },
+  issueBox: {
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   toggleBox: {
     flexDirection: 'row',

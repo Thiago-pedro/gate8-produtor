@@ -332,7 +332,9 @@ export function CortesiasSection({
                   <View style={{ flex: 1 }}>
                     <Text style={styles.hitName}>{batchTicketName(item)}</Text>
                     <Text style={styles.hitEmail}>
-                      {item.sold}/{item.quantity} · {item.sector || 'Lote'}
+                      {item.quantity > 0 ? `${item.sold}/${item.quantity}` : `${item.sold} vendidos · venda livre`}
+                      {' · '}
+                      {item.sector || 'Lote'}
                     </Text>
                   </View>
                 </Pressable>

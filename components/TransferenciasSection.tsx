@@ -6,7 +6,7 @@ import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import { fetchTicketTransfers, type TicketTransfer } from '@/lib/ticket-delivery';
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 6;
 
 function shortCode(value: string) {
   const code = value.trim();
@@ -68,7 +68,7 @@ export function TransferenciasSection({ eventId, nonce }: { eventId: string; non
     );
   }
   if (error && !rows) return <Text style={styles.empty}>{error}</Text>;
-  if (!rows || rows.length === 0) return <Text style={styles.empty}>Nenhuma transferência neste evento.</Text>;
+  if (!rows || rows.length === 0) return <Text style={styles.empty}>Nenhuma transferência aceita neste evento.</Text>;
 
   return (
     <View style={styles.block}>

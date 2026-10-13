@@ -28,6 +28,9 @@ export type EventBatch = {
   valid_from: string | null;
   valid_until: string | null;
   sort_order: number | null;
+  tickets_per_purchase: number;
+  complimentary_per_purchase: number;
+  prerequisite_batch_id: string | null;
 };
 
 export type EventCheckin = {
@@ -280,6 +283,13 @@ function num(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function positiveInt(value: unknown, fallback: number) {
+  if (value == null || value === '') return fallback;
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
 function text(value: unknown) {
   return value == null ? '' : String(value);
 }
@@ -344,23 +354,34 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
 
   const batches = (
     await firstRest([
+      `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until,sort_order,tickets_per_purchase,complimentary_per_purchase,prerequisite_batch_id&event_id=eq.${id}&order=sort_order.asc,created_at.asc,id.asc`,
       `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until,sort_order&event_id=eq.${id}&order=sort_order.asc,created_at.asc,id.asc`,
       `ticket_batches?select=id,name,sector,gender,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
       `ticket_batches?select=id,name,sector,price,quantity,sold,active,valid_from,valid_until&event_id=eq.${id}&order=sector.asc,created_at.asc`,
     ])
-  ).map((batch) => ({
-    id: text(batch.id),
-    name: text(batch.name) || 'Lote',
-    sector: batch.sector ? text(batch.sector) : null,
-    gender: batch.gender ? text(batch.gender) : null,
-    price: num(batch.price),
-    quantity: num(batch.quantity),
-    sold: num(batch.sold),
-    active: batch.active == null ? true : Boolean(batch.active),
-    valid_from: batch.valid_from ? text(batch.valid_from) : null,
-    valid_until: batch.valid_until ? text(batch.valid_until) : null,
-    sort_order: batch.sort_order == null || batch.sort_order === '' ? null : num(batch.sort_order),
-  }));
+  ).map((batch) => {
+    const ticketsPerPurchase = Math.max(1, positiveInt(batch.tickets_per_purchase, 1));
+    const complimentaryPerPurchase = Math.min(
+      ticketsPerPurchase,
+      positiveInt(batch.complimentary_per_purchase, 0)
+    );
+    return {
+      id: text(batch.id),
+      name: text(batch.name) || 'Lote',
+      sector: batch.sector ? text(batch.sector) : null,
+      gender: batch.gender ? text(batch.gender) : null,
+      price: num(batch.price),
+      quantity: num(batch.quantity),
+      sold: num(batch.sold),
+      active: batch.active == null ? true : Boolean(batch.active),
+      valid_from: batch.valid_from ? text(batch.valid_from) : null,
+      valid_until: batch.valid_until ? text(batch.valid_until) : null,
+      sort_order: batch.sort_order == null || batch.sort_order === '' ? null : num(batch.sort_order),
+      tickets_per_purchase: ticketsPerPurchase,
+      complimentary_per_purchase: complimentaryPerPurchase,
+      prerequisite_batch_id: batch.prerequisite_batch_id ? text(batch.prerequisite_batch_id) : null,
+    };
+  });
 
   const sold = batches.reduce((sum, batch) => sum + batch.sold, 0);
   const quantity = batches.reduce((sum, batch) => sum + batch.quantity, 0);
@@ -491,11 +512,25 @@ export const BATCH_GENDERS = [
 
 export type BatchGender = (typeof BATCH_GENDERS)[number]['id'];
 
-export function batchTicketName(batch: EventBatch) {
+export function batchTicketName(batch: Pick<EventBatch, 'name' | 'sector'>) {
   if (batch.sector && batch.name.startsWith(`${batch.sector} - `)) {
     return batch.name.slice(batch.sector.length + 3);
   }
   return batch.name;
+}
+
+export function batchIssuance(batch: Pick<EventBatch, 'tickets_per_purchase' | 'complimentary_per_purchase'>) {
+  const issued = Math.max(1, batch.tickets_per_purchase || 1);
+  const complimentary = Math.min(issued, Math.max(0, batch.complimentary_per_purchase || 0));
+  return { issued, complimentary, paid: issued - complimentary };
+}
+
+export function batchIssuanceLabel(batch: Pick<EventBatch, 'tickets_per_purchase' | 'complimentary_per_purchase'>) {
+  const { issued, paid, complimentary } = batchIssuance(batch);
+  const tickets = issued === 1 ? 'ingresso' : 'ingressos';
+  const paidLabel = paid === 1 ? 'pago' : 'pagos';
+  const gifts = complimentary === 1 ? 'cortesia' : 'cortesias';
+  return `${issued} ${tickets} · ${paid} ${paidLabel} · ${complimentary} ${gifts}`;
 }
 
 export function asBatchGender(value: string | null): BatchGender {
@@ -509,6 +544,9 @@ function batchFields(input: {
   gender: BatchGender;
   price: number;
   quantity: number;
+  ticketsPerPurchase: number;
+  complimentaryPerPurchase: number;
+  prerequisiteBatchId: string | null;
   validFrom: string | null;
   validUntil: string | null;
   active: boolean;
@@ -523,12 +561,26 @@ function batchFields(input: {
   if (!Number.isInteger(input.quantity) || input.quantity < 0) {
     throw new Error('Informe a quantidade.');
   }
+  const ticketsPerPurchase = input.ticketsPerPurchase;
+  const complimentaryPerPurchase = input.complimentaryPerPurchase;
+  if (
+    !Number.isInteger(ticketsPerPurchase) ||
+    ticketsPerPurchase < 1 ||
+    !Number.isInteger(complimentaryPerPurchase) ||
+    complimentaryPerPurchase < 0 ||
+    complimentaryPerPurchase > ticketsPerPurchase
+  ) {
+    throw new Error('Confira a quantidade de ingressos e cortesias.');
+  }
   return {
     sector,
     name: `${sector} - ${label}`,
     gender: input.gender,
     price: input.price,
     quantity: input.quantity,
+    tickets_per_purchase: ticketsPerPurchase,
+    complimentary_per_purchase: complimentaryPerPurchase,
+    prerequisite_batch_id: input.prerequisiteBatchId,
     valid_from: input.validFrom,
     valid_until: input.validUntil,
     active: input.active,
@@ -542,6 +594,9 @@ export async function createTicketBatch(input: {
   gender: BatchGender;
   price: number;
   quantity: number;
+  ticketsPerPurchase: number;
+  complimentaryPerPurchase: number;
+  prerequisiteBatchId: string | null;
   validFrom: string | null;
   validUntil: string | null;
   active: boolean;
@@ -567,6 +622,9 @@ export async function updateTicketBatch(
     gender: BatchGender;
     price: number;
     quantity: number;
+    ticketsPerPurchase: number;
+    complimentaryPerPurchase: number;
+    prerequisiteBatchId: string | null;
     validFrom: string | null;
     validUntil: string | null;
     active: boolean;
