@@ -31,7 +31,7 @@ export function SiteFooter() {
       </View>
 
       <Text style={styles.company}>
-        GATE8 INTERMEDIAÇÃO E TECNOLOGIA LTDA{'\n'}CNPJ 00.000.000/0000-00
+        GATE8 INTERMEDIAÇÃO E TECNOLOGIA LTDA{'\n'}CNPJ 69.615.207/0001-77
       </Text>
 
       <LegalModal doc={legal} onClose={() => setLegal(null)} />

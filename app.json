@@ -7,10 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "gate8produtor",
     "userInterfaceStyle": "dark",
-    "androidNavigationBar": {
-      "backgroundColor": "#000000",
-      "barStyle": "light-content"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "club.gate8.produtor",
@@ -50,7 +46,14 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-navigation-bar",
+        {
+          "style": "light",
+          "enforceContrast": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

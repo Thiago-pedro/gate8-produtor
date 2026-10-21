@@ -1,8 +1,10 @@
 import { DarkTheme, ThemeProvider, useSegments, type ErrorBoundaryProps, Stack } from 'expo-router';
+import { NavigationBar } from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackground } from '@/components/AppBackground';
 import { colors } from '@/constants/theme';
@@ -101,12 +103,15 @@ function BootSplash({ children }: { children: ReactNode }) {
 }
 
 export default function RootLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <ThemeProvider value={navTheme}>
       <AuthProvider>
         <ProducerProvider>
           <View style={styles.appRoot}>
             <StatusBar style="light" />
+            {Platform.OS === 'android' ? <NavigationBar style="light" /> : null}
             <BootSplash>
               <Stack
                 initialRouteName="index"
@@ -126,6 +131,9 @@ export default function RootLayout() {
                 <Stack.Screen name="evento/[id]" />
               </Stack>
             </BootSplash>
+            {Platform.OS === 'android' && insets.bottom > 0 ? (
+              <View pointerEvents="none" style={[styles.navScrim, { height: insets.bottom }]} />
+            ) : null}
           </View>
         </ProducerProvider>
       </AuthProvider>
@@ -141,6 +149,14 @@ const styles = StyleSheet.create({
   appRoot: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  navScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000000',
+    zIndex: 40,
   },
   opening: {
     ...StyleSheet.absoluteFillObject,
