@@ -32,7 +32,12 @@ export default function SplashIndex() {
 
   return (
     <View style={styles.splash}>
-      <Image source={require('../assets/images/splash.png')} style={styles.image} resizeMode="cover" />
+      <Image
+        source={require('../assets/images/splash.png')}
+        style={styles.image}
+        resizeMode="cover"
+        fadeDuration={0}
+      />
     </View>
   );
 }

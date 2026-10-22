@@ -11,7 +11,11 @@ import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ProducerProvider, useProducer } from '@/lib/producer-context';
 
+SplashScreen.setOptions({ duration: 0, fade: false });
 SplashScreen.preventAutoHideAsync();
+
+const SPLASH_HOLD_MS = 2500;
+const SPLASH_FADE_MS = 460;
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -47,56 +51,68 @@ function BootSplash({ children }: { children: ReactNode }) {
   const { loading } = useAuth();
   const { loading: producerLoading } = useProducer();
   const segments = useSegments();
-  const opacity = useRef(new Animated.Value(1)).current;
-  const fading = useRef(false);
   const [cover, setCover] = useState(true);
-  const [minHold, setMinHold] = useState(true);
+  const [art, setArt] = useState(true);
+  const [held, setHeld] = useState(false);
+  const veil = useRef(new Animated.Value(0)).current;
+  const leaving = useRef(false);
   const leaf = segments[segments.length - 1];
   const destination =
     leaf === 'login' || leaf === 'home' || leaf === 'convite' || leaf === 'cadastro-produtor';
 
-  useEffect(() => {
-    void SplashScreen.hideAsync();
-  }, []);
+  function leaveSplash() {
+    if (leaving.current) return;
+    leaving.current = true;
+    Animated.timing(veil, {
+      toValue: 1,
+      duration: SPLASH_FADE_MS,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setArt(false);
+      Animated.timing(veil, {
+        toValue: 0,
+        duration: SPLASH_FADE_MS,
+        useNativeDriver: true,
+      }).start(({ finished: revealed }) => {
+        if (revealed) setCover(false);
+      });
+    });
+  }
 
   useEffect(() => {
-    const timer = setTimeout(() => setMinHold(false), 900);
+    const timer = setTimeout(() => setHeld(true), SPLASH_HOLD_MS);
     return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    const max = setTimeout(() => setCover(false), 5600);
+    if (held && !loading && !producerLoading && destination) leaveSplash();
+  }, [destination, held, loading, producerLoading]);
+
+  useEffect(() => {
+    const max = setTimeout(() => leaveSplash(), 6000);
     return () => clearTimeout(max);
   }, []);
-
-  useEffect(() => {
-    if (fading.current || cover === false || minHold || loading || producerLoading || !destination) return;
-    const timer = setTimeout(() => {
-      fading.current = true;
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 380,
-        useNativeDriver: true,
-      }).start(() => setCover(false));
-    }, 220);
-    return () => clearTimeout(timer);
-  }, [cover, destination, loading, minHold, opacity, producerLoading]);
 
   return (
     <View style={styles.app}>
       {children}
       {cover ? (
-        <Animated.View
-          pointerEvents="auto"
-          needsOffscreenAlphaCompositing
-          style={[styles.opening, { opacity }]}
-        >
-          <Image
-            source={require('../assets/images/splash.png')}
-            resizeMode="cover"
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
+        <View pointerEvents="auto" style={styles.opening}>
+          {art ? (
+            <Image
+              source={require('../assets/images/splash.png')}
+              resizeMode="cover"
+              fadeDuration={0}
+              onLoad={() => {
+                SplashScreen.setOptions({ duration: 0, fade: false });
+                void SplashScreen.hideAsync();
+              }}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : null}
+          <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />
+        </View>
       ) : null}
     </View>
   );
@@ -160,8 +176,12 @@ const styles = StyleSheet.create({
   },
   opening: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 20,
+    zIndex: 50,
     elevation: 24,
+    backgroundColor: 'transparent',
+  },
+  veil: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000000',
   },
   errorScreen: {

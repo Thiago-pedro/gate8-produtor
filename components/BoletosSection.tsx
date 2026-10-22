@@ -1,9 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import type { EventBoletos } from '@/lib/boletos';
 import { formatBRL, formatDateTime } from '@/lib/format';
+
+const PAGE_SIZE = 6;
 
 export function BoletosSection({
   report,
@@ -14,6 +18,22 @@ export function BoletosSection({
   busy: boolean;
   error: string | null;
 }) {
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [report]);
+
+  const ordered = useMemo(
+    () =>
+      [...(report?.rows ?? [])].sort((left, right) => {
+        const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0;
+        const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0;
+        return rightTime - leftTime;
+      }),
+    [report]
+  );
+
   if (busy && !report) {
     return (
       <View style={styles.boot}>
@@ -38,6 +58,9 @@ export function BoletosSection({
   }
 
   const { totals } = report;
+  const pages = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pages);
+  const visible = ordered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <View style={styles.block}>
@@ -53,13 +76,7 @@ export function BoletosSection({
         compensação.
       </Text>
 
-      {[...report.rows]
-        .sort((left, right) => {
-          const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0;
-          const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0;
-          return rightTime - leftTime;
-        })
-        .map((row) => {
+      {visible.map((row) => {
         const code = (row.id || row.intentId).slice(0, 8).toUpperCase();
         return (
           <View key={row.id || row.intentId} style={styles.card}>
@@ -90,6 +107,27 @@ export function BoletosSection({
           </View>
         );
       })}
+      {pages > 1 ? (
+        <View style={styles.pager}>
+          <Pressable
+            onPress={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={currentPage <= 1}
+            style={[styles.pagerBtn, currentPage <= 1 && styles.off]}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.text} />
+          </Pressable>
+          <Text style={styles.pagerText}>
+            Página {currentPage} de {pages}
+          </Text>
+          <Pressable
+            onPress={() => setPage((current) => Math.min(pages, current + 1))}
+            disabled={currentPage >= pages}
+            style={[styles.pagerBtn, currentPage >= pages && styles.off]}
+          >
+            <Ionicons name="chevron-forward" size={18} color={colors.text} />
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -240,5 +278,29 @@ const styles = StyleSheet.create({
   metricHint: {
     color: 'rgba(255,255,255,0.5)',
     fontSize: 11,
+  },
+  pager: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 4,
+  },
+  pagerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  off: {
+    opacity: 0.4,
   },
 });

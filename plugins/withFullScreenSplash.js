@@ -66,12 +66,43 @@ function withFullScreenSplash(config) {
   });
 
   config = withMainActivity(config, (config) => {
-    if (!config.modResults.contents.includes('SplashScreenManager.hide()')) {
-      config.modResults.contents = config.modResults.contents.replace(
+    let contents = config.modResults.contents;
+    if (!contents.includes('hideSplashCut()')) {
+      contents = contents.replace(
         /\/\/ @generated end expo-splashscreen\r?\n/,
-        '// @generated end expo-splashscreen\n    SplashScreenManager.hide()\n'
+        '// @generated end expo-splashscreen\n    hideSplashCut()\n'
       );
     }
+    if (!contents.includes('private fun hideSplashCut()')) {
+      contents = contents.replace(
+        '\n  /**\n   * Returns the name of the main component registered from JavaScript.',
+        `\n  private fun hideSplashCut() {
+    runCatching {
+      val field = SplashScreenManager::class.java.getDeclaredField("splashScreen")
+      field.isAccessible = true
+      val splash = field.get(SplashScreenManager) ?: return@runCatching
+      val method = splash.javaClass.methods.first { it.name == "setOnExitAnimationListener" }
+      val listenerType = method.parameterTypes[0]
+      val listener = java.lang.reflect.Proxy.newProxyInstance(
+        listenerType.classLoader,
+        arrayOf(listenerType)
+      ) { _, _, args ->
+        val provider = args?.firstOrNull()
+        provider?.javaClass?.methods
+          ?.firstOrNull { it.name == "remove" && it.parameterTypes.isEmpty() }
+          ?.invoke(provider)
+        null
+      }
+      method.invoke(splash, listener)
+    }
+    SplashScreenManager.hide()
+  }
+
+  /**
+   * Returns the name of the main component registered from JavaScript.`
+      );
+    }
+    config.modResults.contents = contents;
     return config;
   });
 
