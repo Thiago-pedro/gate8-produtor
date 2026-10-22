@@ -68,7 +68,7 @@ export default function ConviteScreen() {
     <AuthScreenShell>
       <View style={styles.logoWrap}>
         <Logo height={56} centered />
-        <Text style={styles.brand}>PRODUTOR</Text>
+        <Text style={styles.brand}>MANAGER</Text>
       </View>
       <NeonCard>
         {declined ? (

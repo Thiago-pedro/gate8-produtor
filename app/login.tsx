@@ -53,7 +53,7 @@ function LoginForm() {
           }}
           resizeMode="contain"
         />
-        <Text style={styles.brand}>PRODUTOR</Text>
+        <Text style={styles.brand}>MANAGER</Text>
       </View>
       <NeonCard accent={PRODUCER_BLUE}>
         <Text style={styles.title}>Entrar</Text>

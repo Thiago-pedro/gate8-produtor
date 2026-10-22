@@ -48,7 +48,7 @@ function SignupForm() {
     <>
       <View style={[styles.logoWrap, keyboardOpen && styles.logoWrapCompact]}>
         <Logo height={keyboardOpen ? 40 : 56} centered />
-        <Text style={styles.brand}>PRODUTOR</Text>
+        <Text style={styles.brand}>MANAGER</Text>
       </View>
       <NeonCard>
         <Text style={styles.title}>Criar conta</Text>

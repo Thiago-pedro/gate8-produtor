@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "GATE8 Produtor",
+    "name": "Gate8 Manager",
     "slug": "gate8-produtor",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,7 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "club.gate8.produtor",
       "infoPlist": {
-        "CFBundleDisplayName": "GATE8 Produtor",
+        "CFBundleDisplayName": "Gate8 Manager",
         "LSApplicationQueriesSchemes": [
           "gate8"
         ]
@@ -40,7 +40,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "A Gate8 Produtor usa suas fotos para enviar a arte e o mapa do evento.",
+          "photosPermission": "A Gate8 Manager usa suas fotos para enviar a arte e o mapa do evento.",
           "cameraPermission": false,
           "microphonePermission": false
         }
