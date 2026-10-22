@@ -1,9 +1,10 @@
+import { isRunningInExpoGo } from 'expo';
 import { DarkTheme, ThemeProvider, useSegments, type ErrorBoundaryProps, Stack } from 'expo-router';
 import { NavigationBar } from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackground } from '@/components/AppBackground';
@@ -11,11 +12,18 @@ import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ProducerProvider, useProducer } from '@/lib/producer-context';
 
-SplashScreen.setOptions({ duration: 0, fade: false });
 SplashScreen.preventAutoHideAsync();
 
+function hideNativeSplash() {
+  if (!isRunningInExpoGo()) {
+    SplashScreen.setOptions({ duration: 0, fade: false });
+  }
+  void SplashScreen.hideAsync();
+}
+
 const SPLASH_HOLD_MS = 2500;
-const SPLASH_FADE_MS = 460;
+const SPLASH_FADE_MS = 560;
+const expoGo = isRunningInExpoGo();
 
 export const unstable_settings = {
   initialRouteName: 'index',
@@ -52,67 +60,65 @@ function BootSplash({ children }: { children: ReactNode }) {
   const { loading: producerLoading } = useProducer();
   const segments = useSegments();
   const [cover, setCover] = useState(true);
-  const [art, setArt] = useState(true);
   const [held, setHeld] = useState(false);
+  const [phase, setPhase] = useState<'hold' | 'darken'>('hold');
   const veil = useRef(new Animated.Value(0)).current;
-  const leaving = useRef(false);
+  const scene = useRef(new Animated.Value(expoGo ? 0 : 1)).current;
+  const fading = useRef(false);
   const leaf = segments[segments.length - 1];
   const destination =
     leaf === 'login' || leaf === 'home' || leaf === 'convite' || leaf === 'cadastro-produtor';
 
-  function leaveSplash() {
-    if (leaving.current) return;
-    leaving.current = true;
-    Animated.timing(veil, {
-      toValue: 1,
-      duration: SPLASH_FADE_MS,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) return;
-      setArt(false);
-      Animated.timing(veil, {
-        toValue: 0,
-        duration: SPLASH_FADE_MS,
-        useNativeDriver: true,
-      }).start(({ finished: revealed }) => {
-        if (revealed) setCover(false);
-      });
-    });
-  }
-
   useEffect(() => {
+    hideNativeSplash();
     const timer = setTimeout(() => setHeld(true), SPLASH_HOLD_MS);
     return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (held && !loading && !producerLoading && destination) leaveSplash();
-  }, [destination, held, loading, producerLoading]);
+    if (phase === 'hold' && held && !loading && !producerLoading && destination) setPhase('darken');
+  }, [destination, held, loading, phase, producerLoading]);
 
   useEffect(() => {
-    const max = setTimeout(() => leaveSplash(), 6000);
-    return () => clearTimeout(max);
-  }, []);
+    if (!expoGo || phase !== 'darken' || fading.current) return;
+    fading.current = true;
+    Animated.timing(veil, {
+      toValue: 1,
+      duration: SPLASH_FADE_MS,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setCover(false);
+      Animated.timing(scene, {
+        toValue: 1,
+        duration: 720,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [phase, scene, veil]);
 
   return (
     <View style={styles.app}>
-      {children}
-      {cover ? (
-        <View pointerEvents="auto" style={styles.opening}>
-          {art ? (
+      <Animated.View style={[styles.scene, { opacity: scene }]}>{children}</Animated.View>
+      {expoGo ? (
+        <Modal
+          visible={cover}
+          transparent
+          animationType="none"
+          statusBarTranslucent
+          navigationBarTranslucent
+          onRequestClose={() => {}}
+        >
+          <View pointerEvents="auto" style={styles.opening}>
             <Image
               source={require('../assets/images/splash.png')}
               resizeMode="cover"
               fadeDuration={0}
-              onLoad={() => {
-                SplashScreen.setOptions({ duration: 0, fade: false });
-                void SplashScreen.hideAsync();
-              }}
-              style={StyleSheet.absoluteFill}
+              style={styles.art}
             />
-          ) : null}
-          <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />
-        </View>
+            <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />
+          </View>
+        </Modal>
       ) : null}
     </View>
   );
@@ -142,7 +148,7 @@ export default function RootLayout() {
                 <Stack.Screen name="cadastro" options={{ animation: 'none' }} />
                 <Stack.Screen name="convite" options={{ animation: 'none' }} />
                 <Stack.Screen name="cadastro-produtor" />
-                <Stack.Screen name="home" />
+                <Stack.Screen name="home" options={{ animation: 'none' }} />
                 <Stack.Screen name="evento/novo" />
                 <Stack.Screen name="evento/[id]" />
               </Stack>
@@ -174,13 +180,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     zIndex: 40,
   },
+  scene: {
+    flex: 1,
+  },
   opening: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 50,
-    elevation: 24,
-    backgroundColor: 'transparent',
+    flex: 1,
+    backgroundColor: '#000000',
   },
   veil: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000000',
+  },
+  art: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000000',
   },

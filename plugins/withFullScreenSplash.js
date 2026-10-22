@@ -5,11 +5,6 @@ const path = require('path');
 const SPLASH_WINDOW = `<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splashscreen_background" />
-    <item>
-        <bitmap
-            android:gravity="fill"
-            android:src="@drawable/splash_fullscreen" />
-    </item>
 </layer-list>
 `;
 
@@ -55,7 +50,11 @@ function withFullScreenSplash(config) {
     for (const style of styles) {
       const name = style.$?.name;
       if (name === 'AppTheme' || name === 'Theme.App.SplashScreen') {
-        upsertItem(style, 'android:windowBackground', '@drawable/splash_window');
+        upsertItem(style, 'android:windowBackground', '@color/splashscreen_background');
+      }
+      if (name === 'Theme.App.SplashScreen') {
+        upsertItem(style, 'android:windowSplashScreenBackground', '@color/splashscreen_background');
+        upsertItem(style, 'android:windowSplashScreenAnimatedIcon', '@drawable/splashscreen_blank');
       }
       if (name === 'Theme.App.SplashScreen') {
         upsertItem(style, 'windowSplashScreenAnimatedIcon', '@drawable/splashscreen_blank');
@@ -71,6 +70,51 @@ function withFullScreenSplash(config) {
       contents = contents.replace(
         /\/\/ @generated end expo-splashscreen\r?\n/,
         '// @generated end expo-splashscreen\n    hideSplashCut()\n'
+      );
+    }
+    if (!contents.includes('showSplashArt()')) {
+      contents = contents.replace(
+        /super\.onCreate\(null\)/,
+        'super.onCreate(null)\n    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))\n    showSplashArt()'
+      );
+    }
+    if (!contents.includes('private fun showSplashArt()')) {
+      contents = contents.replace(
+        '\n  /**\n   * Returns the name of the main component registered from JavaScript.',
+        `\n  private fun showSplashArt() {
+    val decor = window.decorView as? android.view.ViewGroup ?: return
+    val splash = android.widget.ImageView(this)
+    splash.setBackgroundColor(android.graphics.Color.BLACK)
+    splash.setImageResource(R.drawable.splash_fullscreen)
+    splash.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+    splash.fitsSystemWindows = false
+    splash.layoutParams = android.view.ViewGroup.LayoutParams(
+      android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+      android.view.ViewGroup.LayoutParams.MATCH_PARENT
+    )
+    decor.addView(splash)
+    val shownAt = android.os.SystemClock.uptimeMillis()
+    var leaving = false
+    val removeSplash = Runnable {
+      if (leaving) return@Runnable
+      leaving = true
+      splash.animate().alpha(0f).setDuration(320L).withEndAction {
+        (splash.parent as? android.view.ViewGroup)?.removeView(splash)
+      }.start()
+    }
+    com.facebook.react.bridge.ReactMarker.addListener(com.facebook.react.bridge.ReactMarker.MarkerListener { name, _, _ ->
+      if (name == com.facebook.react.bridge.ReactMarkerConstants.CONTENT_APPEARED) {
+        val elapsed = android.os.SystemClock.uptimeMillis() - shownAt
+        val wait = (2500L - elapsed).coerceAtLeast(0L)
+        splash.post { splash.bringToFront() }
+        splash.postDelayed(removeSplash, wait)
+      }
+    })
+    splash.postDelayed(removeSplash, 8000)
+  }
+
+  /**
+   * Returns the name of the main component registered from JavaScript.`
       );
     }
     if (!contents.includes('private fun hideSplashCut()')) {

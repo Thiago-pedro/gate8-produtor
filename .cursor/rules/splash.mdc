@@ -1,0 +1,12 @@
+---
+description: O app tem um único splash no Android
+alwaysApply: true
+---
+
+# Um splash só
+
+No APK do Gate8 Manager existe um único splash: a arte nativa em tela cheia, com `CENTER_CROP`, por 2,5 segundos, e em seguida a próxima tela.
+
+Não desenhe um segundo splash em JavaScript no Android. `app/index.tsx` fica só com o fundo preto. O modal com a imagem do splash vale apenas no Expo Go, onde não existe a imagem nativa.
+
+Não estique a arte (`gravity="fill"` ou `resizeMode="stretch"`).
