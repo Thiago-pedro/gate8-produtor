@@ -36,6 +36,7 @@
           "enableFullScreenImage_legacy": true
         }
       ],
+      "./plugins/withFullScreenSplash.js",
       "expo-secure-store",
       [
         "expo-image-picker",
