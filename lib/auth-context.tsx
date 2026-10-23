@@ -13,7 +13,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<{ needsConfirmation: boolean }>;
+  signUp: (email: string, password: string, name: string, cpf: string) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
 };
 
@@ -38,8 +38,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signIn: async (email, password) => {
         setUser(await signInWithPassword(email, password));
       },
-      signUp: async (email, password, name) => {
-        const result = await signUpWithPassword(email, password, name);
+      signUp: async (email, password, name, cpf) => {
+        const result = await signUpWithPassword(email, password, name, cpf);
         setUser(result.user);
         return { needsConfirmation: result.needsConfirmation };
       },

@@ -117,16 +117,30 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Wordmark height={28} />
-        <Pressable
-          onPress={() => setLeaveOpen(true)}
-          hitSlop={12}
-          style={styles.exitBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Sair"
-        >
-          <Ionicons name="exit-outline" size={24} color="rgba(255,255,255,0.88)" />
-        </Pressable>
+        <Wordmark height={24} />
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.push('/conta')}
+            hitSlop={8}
+            style={styles.accountBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Minha conta"
+          >
+            <Ionicons name="person-outline" size={16} color={colors.blue} />
+            <Text style={styles.accountText} numberOfLines={1}>
+              Minha conta
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setLeaveOpen(true)}
+            hitSlop={12}
+            style={styles.exitBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Sair"
+          >
+            <Ionicons name="exit-outline" size={24} color="rgba(255,255,255,0.88)" />
+          </Pressable>
+        </View>
       </View>
 
       <Text style={styles.hello}>Olá{producerName ? `, ${producerName}` : ''}</Text>
@@ -266,17 +280,34 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 19,
     paddingBottom: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
+    justifyContent: 'space-between',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  accountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: colors.blue,
+    backgroundColor: 'transparent',
+  },
+  accountText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
   },
   exitBtn: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
+    height: 36,
     justifyContent: 'center',
-    paddingLeft: 8,
   },
   hello: {
     color: colors.text,

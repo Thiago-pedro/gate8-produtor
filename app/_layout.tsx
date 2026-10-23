@@ -149,6 +149,7 @@ export default function RootLayout() {
                 <Stack.Screen name="convite" options={{ animation: 'none' }} />
                 <Stack.Screen name="cadastro-produtor" />
                 <Stack.Screen name="home" options={{ animation: 'none' }} />
+                <Stack.Screen name="conta" />
                 <Stack.Screen name="evento/novo" />
                 <Stack.Screen name="evento/[id]" />
               </Stack>

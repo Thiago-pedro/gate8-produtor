@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
@@ -246,7 +246,11 @@ export default function EventoScreen() {
   const [reordering, setReordering] = useState(false);
   const [hiddenOverride, setHiddenOverride] = useState<boolean | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
+  const [artRatio, setArtRatio] = useState(16 / 9);
+  const { width: screenWidth } = useWindowDimensions();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bannerUrl = detail?.event.banner_url ?? null;
+  const coverH = Math.max(1, Math.round(screenWidth / artRatio));
 
   async function copyText(value: string, message: string) {
     await Clipboard.setStringAsync(value);
@@ -271,6 +275,22 @@ export default function EventoScreen() {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!bannerUrl) return;
+    let alive = true;
+    Image.getSize(
+      bannerUrl,
+      (w, h) => {
+        if (!alive || w <= 0 || h <= 0) return;
+        setArtRatio(w / h);
+      },
+      () => {}
+    );
+    return () => {
+      alive = false;
+    };
+  }, [bannerUrl]);
 
   const load = useCallback(
     async (soft = false) => {
@@ -447,10 +467,12 @@ export default function EventoScreen() {
         <View style={styles.headerSide} />
       </View>
 
+      <View style={styles.stage}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
+          event.banner_url ? { paddingTop: coverH } : null,
           (section === 'financeiro' || section === 'boletos') && !finance && styles.contentFill,
         ]}
         keyboardShouldPersistTaps="handled"
@@ -464,10 +486,10 @@ export default function EventoScreen() {
               if (section === 'financeiro' || section === 'boletos') void loadFinance(true);
             }}
             tintColor={colors.blue}
+            progressViewOffset={event.banner_url ? coverH : 0}
           />
         }
       >
-        <EventArt uri={event.banner_url} ended={ended} height={180} style={styles.banner} />
         <Text style={styles.name}>{event.name}</Text>
         <Text style={styles.meta}>{formatEventDateTime(event.event_date)}</Text>
         {event.location ? <Text style={styles.meta}>{event.location}</Text> : null}
@@ -922,6 +944,12 @@ export default function EventoScreen() {
 
         <SiteFooter />
       </ScrollView>
+      {event.banner_url ? (
+        <View style={styles.hero} pointerEvents="none">
+          <EventArt uri={event.banner_url} ended={ended} height={coverH} fit="contain" />
+        </View>
+      ) : null}
+      </View>
       {toast ? (
         <View pointerEvents="none" style={styles.toastWrap}>
           <View style={styles.toast}>
@@ -997,6 +1025,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '600',
   },
+  stage: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     paddingHorizontal: 16,
@@ -1008,9 +1039,14 @@ const styles = StyleSheet.create({
   contentFill: {
     flexGrow: 1,
   },
-  banner: {
-    borderRadius: 16,
-    marginTop: 12,
+  hero: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 2,
+    elevation: 4,
+    backgroundColor: colors.bg,
   },
   name: {
     color: colors.text,

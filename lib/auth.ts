@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
+import { siteUrl } from '@/constants/theme';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 
 const SESSION_KEY = 'gate8.produtor.session';
@@ -127,6 +128,42 @@ function authHeaders(accessToken?: string) {
   };
 }
 
+export const CPF_ALREADY_USED = 'Este CPF já está cadastrado em outra conta.';
+export const EMAIL_ALREADY_USED = 'Este e-mail já está cadastrado.';
+
+export function isValidCpf(value: string) {
+  const cpf = value.replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 9; i += 1) sum += Number(cpf[i]) * (10 - i);
+  let digit = (sum * 10) % 11;
+  if (digit === 10) digit = 0;
+  if (digit !== Number(cpf[9])) return false;
+
+  sum = 0;
+  for (let i = 0; i < 10; i += 1) sum += Number(cpf[i]) * (11 - i);
+  digit = (sum * 10) % 11;
+  if (digit === 10) digit = 0;
+  return digit === Number(cpf[10]);
+}
+
+function mapSignupError(message?: string) {
+  const text = message ?? '';
+  const lower = text.toLowerCase();
+  if (
+    lower.includes('account_cpf_unique') ||
+    lower.includes('account_cpf_claims_pkey') ||
+    text.includes(CPF_ALREADY_USED)
+  ) {
+    return CPF_ALREADY_USED;
+  }
+  if (lower.includes('already registered') || lower.includes('user already')) {
+    return EMAIL_ALREADY_USED;
+  }
+  return mapAuthError(message);
+}
+
 function mapAuthError(message?: string) {
   const text = (message ?? '').toLowerCase();
   if (text.includes('invalid login')) return 'E-mail ou senha incorretos.';
@@ -221,14 +258,35 @@ export async function signInWithPassword(email: string, password: string) {
   return session.user;
 }
 
-export async function signUpWithPassword(email: string, password: string, name: string) {
+async function assertCpfAvailable(cpf: string) {
+  try {
+    const response = await fetch(`${siteUrl}/api/public/app/signup/cpf-available`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gate8-Client': 'app',
+      },
+      body: JSON.stringify({ cpf }),
+    });
+    if (!response.ok) return;
+    const body = (await response.json().catch(() => null)) as { available?: boolean } | null;
+    if (body?.available === false) throw new Error(CPF_ALREADY_USED);
+  } catch (caught) {
+    if (caught instanceof Error && caught.message === CPF_ALREADY_USED) throw caught;
+  }
+}
+
+export async function signUpWithPassword(email: string, password: string, name: string, cpf: string) {
+  if (!isValidCpf(cpf)) throw new Error('Informe um CPF válido.');
+  await assertCpfAvailable(cpf);
+
   const response = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
       email: email.trim(),
       password,
-      data: { full_name: name.trim() },
+      data: { full_name: name.trim(), cpf: cpf.replace(/\D/g, '') },
     }),
   });
 
@@ -237,6 +295,9 @@ export async function signUpWithPassword(email: string, password: string, name: 
     error_description?: string;
     message?: string;
     error?: string;
+    code?: string;
+    details?: string;
+    hint?: string;
     access_token?: string;
     refresh_token?: string;
     user?: {
@@ -248,11 +309,14 @@ export async function signUpWithPassword(email: string, password: string, name: 
   };
 
   if (!response.ok) {
-    throw new Error(mapAuthError(body.msg || body.error_description || body.message || body.error));
+    const raw = [body.msg, body.error_description, body.message, body.error, body.code, body.details, body.hint]
+      .filter(Boolean)
+      .join(' ');
+    throw new Error(mapSignupError(raw));
   }
 
   if (body.identities && body.identities.length === 0) {
-    throw new Error('Este e-mail já tem uma conta. Entre com e-mail e senha.');
+    throw new Error(EMAIL_ALREADY_USED);
   }
 
   if (body.access_token && body.user) {

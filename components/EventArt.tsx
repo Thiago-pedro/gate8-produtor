@@ -12,11 +12,13 @@ export function EventArt({
   uri,
   ended,
   height,
+  fit = 'cover',
   style,
 }: {
   uri: string | null;
   ended: boolean;
   height: number;
+  fit?: 'cover' | 'contain';
   style?: StyleProp<ViewStyle>;
 }) {
   const [width, setWidth] = useState(0);
@@ -29,12 +31,12 @@ export function EventArt({
     >
       {uri && ended && skiaImage && width > 0 ? (
         <Canvas style={{ width, height }}>
-          <SkiaImage image={skiaImage} x={0} y={0} width={width} height={height} fit="cover">
+          <SkiaImage image={skiaImage} x={0} y={0} width={width} height={height} fit={fit}>
             <ColorMatrix matrix={GRAYSCALE} />
           </SkiaImage>
         </Canvas>
       ) : uri && !ended ? (
-        <Image source={{ uri }} style={[styles.banner, { height }]} />
+        <Image source={{ uri }} style={[styles.banner, { height }]} resizeMode={fit} />
       ) : (
         <View style={[styles.banner, { height }, uri && ended ? styles.waiting : styles.empty]} />
       )}
