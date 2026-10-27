@@ -211,7 +211,7 @@ async function saveSession(session: Session) {
     const file = sessionFile();
     if (file.exists) file.delete();
     file.create();
-    file.write(raw);
+    file.writeSync(raw);
   } catch {
     // The secure copy below still keeps the login.
   }
