@@ -2,13 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Loader } from '@/components/Loader';
 import { SiteFooter } from '@/components/SiteFooter';
 import { colors } from '@/constants/theme';
+import { bankLabel, filterBanks, matchBank } from '@/lib/banks';
 import { useAuth } from '@/lib/auth-context';
 import { fetchSharedMenu } from '@/lib/team';
 import {
@@ -33,22 +34,6 @@ import {
   type ProducerKind,
 } from '@/lib/producer';
 import { useProducer } from '@/lib/producer-context';
-
-const BANKS = [
-  'Banco do Brasil',
-  'Santander',
-  'Caixa Econômica Federal',
-  'Bradesco',
-  'Itaú Unibanco',
-  'Nubank',
-  'Inter',
-  'C6 Bank',
-  'PagBank (PagSeguro)',
-  'PicPay',
-  'Stone',
-  'Sicredi',
-  'Sicoob',
-];
 
 const PIX_TYPES: { id: PixKeyType; label: string }[] = [
   { id: 'cpf', label: 'CPF' },
@@ -99,6 +84,28 @@ function Field({
   );
 }
 
+function Accordion({
+  title,
+  open,
+  onPress,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.accordion}>
+      <Pressable onPress={onPress} style={styles.accordionHead} accessibilityRole="button">
+        <Text style={styles.accordionTitle}>{title}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.text} />
+      </Pressable>
+      {open ? <View style={styles.accordionBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
@@ -118,6 +125,9 @@ export default function ContaScreen() {
   const [saved, setSaved] = useState<string | null>(null);
   const [bio, setBio] = useState<'on' | 'off' | 'hidden'>('hidden');
   const [bioOff, setBioOff] = useState(false);
+  const [openSections, setOpenSections] = useState({ conta: true, tipo: false, fiscal: false, financeiro: false });
+  const [bankOpen, setBankOpen] = useState(false);
+  const [bankQuery, setBankQuery] = useState('');
 
   useEffect(() => {
     if (loading || producerLoading || locked) return;
@@ -180,6 +190,10 @@ export default function ContaScreen() {
       await writeBiometricPreference(user.id, 'on');
       setBio('on');
     })();
+  }
+
+  function toggleSection(key: keyof typeof openSections) {
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }));
   }
 
   function patch<K extends keyof ProducerDraft>(key: K, value: ProducerDraft[K]) {
@@ -262,6 +276,7 @@ export default function ContaScreen() {
   }
 
   const preview = logo?.uri || draft.logo_url;
+  const chosenBank = matchBank(draft.bank_name);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -294,170 +309,184 @@ export default function ContaScreen() {
           </Pressable>
         ) : null}
 
-        <Text style={styles.section}>Dados da conta</Text>
-        <Field label="Nome completo" value={draft.full_name} locked />
-        <Field label="Telefone" value={draft.phone} locked />
-        <Field label="E-mail" value={draft.email} locked />
-        <Field label="Cidade" value={draft.city} locked />
-        <Field label="Estado (UF)" value={draft.state} locked />
-        {draft.kind === 'individual' ? (
-          <>
-            <Field label="CPF" value={draft.cpf} locked />
-            <Field label="Data de nascimento" value={draft.birth_date} locked />
-          </>
-        ) : null}
-
-        <Text style={styles.section}>O que você pode atualizar</Text>
-        <Text style={styles.label}>Tipo de cadastro</Text>
-        <View style={styles.kinds}>
-          <Pressable
-            onPress={() => patch('kind', 'individual' satisfies ProducerKind)}
-            style={[styles.kindCard, draft.kind === 'individual' && styles.kindCardOn]}
-          >
-            <Text style={styles.kindTitle}>Pessoa física</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => patch('kind', 'company')}
-            style={[styles.kindCard, draft.kind === 'company' && styles.kindCardOn]}
-          >
-            <Text style={styles.kindTitle}>Empresa</Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.label}>Foto de perfil / logo</Text>
-        <View style={styles.logoRow}>
-          {preview ? <Image source={{ uri: preview }} style={styles.logo} /> : <View style={styles.logo} />}
-          <View style={styles.logoActions}>
-            <Pressable onPress={() => void pickLogo()} style={styles.ghostBtn}>
-              <Text style={styles.ghostText}>{preview ? 'Trocar foto' : 'Enviar foto'}</Text>
-            </Pressable>
-            {preview ? (
-              <Pressable
-                onPress={() => {
-                  setLogo(null);
-                  patch('logo_url', '');
-                }}
-                style={styles.ghostBtn}
-              >
-                <Text style={styles.ghostText}>Remover</Text>
+        <Accordion title="Dados da conta" open={openSections.conta} onPress={() => toggleSection('conta')}>
+          <Field label="Nome completo" value={draft.full_name} locked />
+          <Field label="Telefone" value={draft.phone} locked />
+          <Field label="E-mail" value={draft.email} locked />
+          <Field label="Cidade" value={draft.city} locked />
+          <Field label="Estado (UF)" value={draft.state} locked />
+          {draft.kind === 'individual' ? (
+            <>
+              <Field label="CPF" value={draft.cpf} locked />
+              <Field label="Data de nascimento" value={draft.birth_date} locked />
+            </>
+          ) : null}
+          <Text style={styles.label}>Foto de perfil / logo</Text>
+          <View style={styles.logoRow}>
+            {preview ? <Image source={{ uri: preview }} style={styles.logo} /> : <View style={styles.logo} />}
+            <View style={styles.logoActions}>
+              <Pressable onPress={() => void pickLogo()} style={styles.ghostBtn}>
+                <Text style={styles.ghostText}>{preview ? 'Trocar foto' : 'Enviar foto'}</Text>
               </Pressable>
-            ) : null}
+              {preview ? (
+                <Pressable
+                  onPress={() => {
+                    setLogo(null);
+                    patch('logo_url', '');
+                  }}
+                  style={styles.ghostBtn}
+                >
+                  <Text style={styles.ghostText}>Remover</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-        </View>
+          <Field label="Nome artístico / marca / produtora" value={draft.brand_name} onChangeText={(value) => patch('brand_name', value)} />
+          <Field
+            label="Instagram"
+            value={draft.instagram}
+            onChangeText={(value) => patch('instagram', value.slice(0, 200))}
+            placeholder="@usuario ou link"
+            autoCapitalize="none"
+          />
+          <Field
+            label="Facebook"
+            value={draft.facebook}
+            onChangeText={(value) => patch('facebook', value.slice(0, 200))}
+            placeholder="@usuario ou link"
+            autoCapitalize="none"
+          />
+          <Text style={styles.hint}>Preencha pelo menos uma rede social.</Text>
+          <Field
+            label="WhatsApp"
+            value={draft.whatsapp}
+            onChangeText={(value) => patch('whatsapp', formatPhone(value))}
+            keyboardType="phone-pad"
+            placeholder="(00) 00000-0000"
+          />
+          <Field label="Bio / descrição curta" value={draft.bio} onChangeText={(value) => patch('bio', value)} />
+        </Accordion>
 
-        <Field label="Nome artístico / marca / produtora" value={draft.brand_name} onChangeText={(value) => patch('brand_name', value)} />
-        <Field
-          label="Instagram"
-          value={draft.instagram}
-          onChangeText={(value) => patch('instagram', value.slice(0, 200))}
-          placeholder="@usuario ou link"
-          autoCapitalize="none"
-        />
-        <Field
-          label="Facebook"
-          value={draft.facebook}
-          onChangeText={(value) => patch('facebook', value.slice(0, 200))}
-          placeholder="@usuario ou link"
-          autoCapitalize="none"
-        />
-        <Text style={styles.hint}>Preencha pelo menos uma rede social.</Text>
-        <Field
-          label="WhatsApp"
-          value={draft.whatsapp}
-          onChangeText={(value) => patch('whatsapp', formatPhone(value))}
-          keyboardType="phone-pad"
-          placeholder="(00) 00000-0000"
-        />
-        <Field label="Bio / descrição curta" value={draft.bio} onChangeText={(value) => patch('bio', value)} />
-
-        {draft.kind === 'company' ? (
-          <>
-            <Text style={styles.section}>Dados fiscais da empresa</Text>
-            <Field
-              label="CNPJ *"
-              value={draft.cnpj}
-              onChangeText={(value) => patch('cnpj', formatCnpj(value))}
-              keyboardType="numeric"
-              placeholder="00.000.000/0000-00"
-            />
-            <Field label="Razão social" value={draft.legal_name} onChangeText={(value) => patch('legal_name', value)} />
-            <Field label="Nome fantasia" value={draft.trade_name} onChangeText={(value) => patch('trade_name', value)} />
-            <Field
-              label="E-mail da empresa *"
-              value={draft.company_email}
-              onChangeText={(value) => patch('company_email', value)}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholder="contato@empresa.com.br"
-            />
-            <Text style={styles.hint}>A confirmação da conta de produtor é enviada para este e-mail.</Text>
-            <Field
-              label="CEP *"
-              value={draft.company_cep}
-              onChangeText={(value) => patch('company_cep', formatCep(value))}
-              keyboardType="numeric"
-              placeholder="00000-000"
-            />
-            <Pressable onPress={() => void fillCompanyCep()} style={styles.ghostBtn}>
-              <Text style={styles.ghostText}>Buscar CEP</Text>
+        <Accordion title="Tipo de cadastro" open={openSections.tipo} onPress={() => toggleSection('tipo')}>
+          <View style={styles.kinds}>
+            <Pressable
+              onPress={() => patch('kind', 'individual' satisfies ProducerKind)}
+              style={[styles.kindCard, draft.kind === 'individual' && styles.kindCardOn]}
+            >
+              <Text style={styles.kindTitle}>Pessoa física</Text>
             </Pressable>
-            <Field label="Endereço *" value={draft.company_street} onChangeText={(value) => patch('company_street', value)} />
-            <Field label="Número *" value={draft.company_number} onChangeText={(value) => patch('company_number', value)} />
-            <Field label="Complemento" value={draft.company_complement} onChangeText={(value) => patch('company_complement', value)} />
-            <Field label="Bairro *" value={draft.company_neighborhood} onChangeText={(value) => patch('company_neighborhood', value)} />
-            <Field label="Cidade da empresa *" value={draft.company_city} onChangeText={(value) => patch('company_city', value)} autoCapitalize="words" />
-            <Field
-              label="Estado da empresa *"
-              value={draft.company_state}
-              onChangeText={(value) => patch('company_state', value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2))}
-              autoCapitalize="characters"
-              placeholder="SP"
-            />
-          </>
-        ) : null}
+            <Pressable
+              onPress={() => patch('kind', 'company')}
+              style={[styles.kindCard, draft.kind === 'company' && styles.kindCardOn]}
+            >
+              <Text style={styles.kindTitle}>Empresa</Text>
+            </Pressable>
+          </View>
+        </Accordion>
 
-        <Text style={styles.section}>Dados financeiros</Text>
-        <Text style={styles.hint}>A receita dos seus eventos é recebida nesta conta.</Text>
-        <Text style={styles.label}>Tipo de chave Pix</Text>
-        <View style={styles.chips}>
-          {PIX_TYPES.map((item) => (
-            <Chip
-              key={item.id}
-              label={item.label}
-              active={draft.pix_key_type === item.id}
-              onPress={() => {
-                patch('pix_key_type', item.id);
-                patch('pix_key', '');
-              }}
-            />
-          ))}
-        </View>
-        <Field
-          label="Chave Pix"
-          value={draft.pix_key}
-          onChangeText={(value) => patch('pix_key', formatPixKey(value, draft.pix_key_type))}
-          autoCapitalize="none"
-          keyboardType={draft.pix_key_type === 'email' ? 'email-address' : 'default'}
-        />
-        <Field label="Banco" value={draft.bank_name} onChangeText={(value) => patch('bank_name', value)} />
-        <View style={styles.chips}>
-          {BANKS.map((bank) => (
-            <Chip key={bank} label={bank} active={draft.bank_name === bank} onPress={() => patch('bank_name', bank)} />
-          ))}
-        </View>
-        <Field label="Agência" value={draft.bank_agency} onChangeText={(value) => patch('bank_agency', value)} />
-        <Field label="Conta" value={draft.bank_account} onChangeText={(value) => patch('bank_account', value)} />
-        <Text style={styles.label}>Tipo de conta</Text>
-        <View style={styles.chips}>
-          {ACCOUNT_KINDS.map((item) => (
-            <Chip
-              key={item.id}
-              label={item.label}
-              active={draft.bank_account_kind === item.id}
-              onPress={() => patch('bank_account_kind', item.id)}
-            />
-          ))}
-        </View>
+        <Accordion title="Dados fiscais" open={openSections.fiscal} onPress={() => toggleSection('fiscal')}>
+          {draft.kind === 'company' ? (
+            <>
+              <Field
+                label="CNPJ *"
+                value={draft.cnpj}
+                onChangeText={(value) => patch('cnpj', formatCnpj(value))}
+                keyboardType="numeric"
+                placeholder="00.000.000/0000-00"
+              />
+              <Field label="Razão social" value={draft.legal_name} onChangeText={(value) => patch('legal_name', value)} />
+              <Field label="Nome fantasia" value={draft.trade_name} onChangeText={(value) => patch('trade_name', value)} />
+              <Field
+                label="E-mail da empresa *"
+                value={draft.company_email}
+                onChangeText={(value) => patch('company_email', value)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                placeholder="contato@empresa.com.br"
+              />
+              <Text style={styles.hint}>A confirmação da conta de produtor é enviada para este e-mail.</Text>
+              <Field
+                label="CEP *"
+                value={draft.company_cep}
+                onChangeText={(value) => patch('company_cep', formatCep(value))}
+                keyboardType="numeric"
+                placeholder="00000-000"
+              />
+              <Pressable onPress={() => void fillCompanyCep()} style={styles.ghostBtn}>
+                <Text style={styles.ghostText}>Buscar CEP</Text>
+              </Pressable>
+              <Field label="Endereço *" value={draft.company_street} onChangeText={(value) => patch('company_street', value)} />
+              <Field label="Número *" value={draft.company_number} onChangeText={(value) => patch('company_number', value)} />
+              <Field label="Complemento" value={draft.company_complement} onChangeText={(value) => patch('company_complement', value)} />
+              <Field label="Bairro *" value={draft.company_neighborhood} onChangeText={(value) => patch('company_neighborhood', value)} />
+              <Field label="Cidade da empresa *" value={draft.company_city} onChangeText={(value) => patch('company_city', value)} autoCapitalize="words" />
+              <Field
+                label="Estado da empresa *"
+                value={draft.company_state}
+                onChangeText={(value) => patch('company_state', value.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 2))}
+                autoCapitalize="characters"
+                placeholder="SP"
+              />
+            </>
+          ) : (
+            <Text style={styles.hint}>
+              No cadastro de pessoa física, CPF e data de nascimento ficam em Dados da conta e não podem ser alterados.
+            </Text>
+          )}
+        </Accordion>
+
+        <Accordion title="Dados financeiros" open={openSections.financeiro} onPress={() => toggleSection('financeiro')}>
+          <Text style={styles.hint}>A receita dos seus eventos é recebida nesta conta.</Text>
+          <Text style={styles.label}>Tipo de chave Pix</Text>
+          <View style={styles.chips}>
+            {PIX_TYPES.map((item) => (
+              <Chip
+                key={item.id}
+                label={item.label}
+                active={draft.pix_key_type === item.id}
+                onPress={() => {
+                  patch('pix_key_type', item.id);
+                  patch('pix_key', '');
+                }}
+              />
+            ))}
+          </View>
+          <Field
+            label="Chave Pix"
+            value={draft.pix_key}
+            onChangeText={(value) => patch('pix_key', formatPixKey(value, draft.pix_key_type))}
+            autoCapitalize="none"
+            keyboardType={draft.pix_key_type === 'email' ? 'email-address' : 'default'}
+          />
+          <Text style={styles.label}>Banco</Text>
+          <Pressable
+            onPress={() => {
+              setBankQuery('');
+              setBankOpen(true);
+            }}
+            style={styles.bankField}
+            accessibilityRole="button"
+            accessibilityLabel="Escolher banco"
+          >
+            <Text style={[styles.bankValue, !draft.bank_name && styles.bankPlaceholder]} numberOfLines={1}>
+              {chosenBank ? bankLabel(chosenBank) : draft.bank_name || 'Escolha o banco'}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={colors.muted} />
+          </Pressable>
+          <Field label="Agência" value={draft.bank_agency} onChangeText={(value) => patch('bank_agency', value)} />
+          <Field label="Conta" value={draft.bank_account} onChangeText={(value) => patch('bank_account', value)} />
+          <Text style={styles.label}>Tipo de conta</Text>
+          <View style={styles.chips}>
+            {ACCOUNT_KINDS.map((item) => (
+              <Chip
+                key={item.id}
+                label={item.label}
+                active={draft.bank_account_kind === item.id}
+                onPress={() => patch('bank_account_kind', item.id)}
+              />
+            ))}
+          </View>
+        </Accordion>
 
         <Pressable onPress={() => void save()} disabled={busy} style={styles.saveWrap}>
           <LinearGradient colors={['#007BFF', '#0056b3']} style={styles.save}>
@@ -466,6 +495,46 @@ export default function ContaScreen() {
         </Pressable>
         <SiteFooter />
       </ScrollView>
+      <Modal visible={bankOpen} animationType="slide" onRequestClose={() => setBankOpen(false)}>
+        <SafeAreaView style={styles.bankModal} edges={['top', 'bottom']}>
+          <View style={styles.bankModalHead}>
+            <Text style={styles.bankModalTitle}>Escolha o banco</Text>
+            <Pressable onPress={() => setBankOpen(false)} hitSlop={12} accessibilityLabel="Fechar">
+              <Ionicons name="close" size={24} color={colors.text} />
+            </Pressable>
+          </View>
+          <TextInput
+            value={bankQuery}
+            onChangeText={setBankQuery}
+            placeholder="Buscar por nome ou código"
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            autoCorrect={false}
+            style={styles.bankSearch}
+          />
+          <FlatList
+            data={filterBanks(bankQuery)}
+            keyExtractor={(bank) => bank.code}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={<Text style={styles.bankEmpty}>Nenhum banco encontrado.</Text>}
+            renderItem={({ item }) => {
+              const selected = chosenBank?.code === item.code;
+              return (
+                <Pressable
+                  onPress={() => {
+                    patch('bank_name', item.name);
+                    setBankOpen(false);
+                  }}
+                  style={[styles.bankRow, selected && styles.bankRowOn]}
+                >
+                  <Text style={styles.bankCode}>{item.code}</Text>
+                  <Text style={styles.bankName}>{item.name}</Text>
+                  {selected ? <Ionicons name="checkmark" size={18} color={colors.blue} /> : null}
+                </Pressable>
+              );
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
       <Modal visible={bioOff} transparent animationType="fade" onRequestClose={() => setBioOff(false)}>
         <View style={styles.dialogOverlay}>
           <View style={styles.dialogCard}>
@@ -618,12 +687,34 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 12,
   },
-  section: {
+  accordion: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.28)',
+    borderRadius: 16,
+    backgroundColor: 'rgba(8, 24, 52, 0.55)',
+    overflow: 'hidden',
+  },
+  accordionHead: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  accordionTitle: {
+    flex: 1,
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
-    marginTop: 18,
-    marginBottom: 10,
+  },
+  accordionBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    paddingTop: 12,
   },
   field: {
     marginBottom: 10,
@@ -647,6 +738,80 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
+  },
+  bankField: {
+    minHeight: 48,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bankValue: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+  },
+  bankPlaceholder: {
+    color: 'rgba(255,255,255,0.28)',
+  },
+  bankModal: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  bankModalHead: {
+    height: 52,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bankModalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  bankSearch: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    color: colors.text,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  bankRow: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  bankRowOn: {
+    backgroundColor: 'rgba(0,123,255,0.12)',
+  },
+  bankCode: {
+    width: 36,
+    color: colors.blue,
+    fontWeight: '700',
+  },
+  bankName: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+  },
+  bankEmpty: {
+    color: colors.muted,
+    textAlign: 'center',
+    marginTop: 24,
   },
   inputLocked: {
     color: 'rgba(255,255,255,0.55)',
