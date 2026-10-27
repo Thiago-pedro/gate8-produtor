@@ -18,10 +18,12 @@ export function EstornosSection({
   eventId,
   nonce,
   onToast,
+  readOnly = false,
 }: {
   eventId: string;
   nonce: number;
   onToast: (message: string) => void;
+  readOnly?: boolean;
 }) {
   const [data, setData] = useState<RefundReport | null>(null);
   const [busy, setBusy] = useState(true);
@@ -143,9 +145,9 @@ export function EstornosSection({
           <View key={hit.key} style={styles.hit}>
             <View style={styles.hitTop}>
               <Text style={[styles.buyer, styles.buyerFlex]}>{title}</Text>
-              {blocked ? (
+              {blocked || readOnly ? (
                 <View style={styles.validatedBadge}>
-                  <Text style={styles.validatedText}>Já validado</Text>
+                  <Text style={styles.validatedText}>{readOnly && !blocked ? 'Somente leitura' : 'Já validado'}</Text>
                 </View>
               ) : (
                 <Pressable

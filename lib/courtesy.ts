@@ -241,6 +241,8 @@ async function sendTicketEmails(ticketIds: string[]) {
 }
 
 export async function emitCourtesy(input: EmitCourtesyInput) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(input.eventId);
   const name = input.holderName.trim();
   const email = input.holderEmail.trim();
   if (input.mode === 'customer' && !input.customer) {

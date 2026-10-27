@@ -11,24 +11,36 @@ import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
+import { fetchSharedMenu } from '@/lib/team';
 
 const CLIENT_APP_URL = 'gate8://';
 
 export default function ConviteScreen() {
   const router = useRouter();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, locked, signOut } = useAuth();
   const { status, loading: producerLoading } = useProducer();
   const [busy, setBusy] = useState(false);
   const [declined, setDeclined] = useState(false);
 
   useEffect(() => {
-    if (loading || producerLoading) return;
+    if (loading || producerLoading || locked) return;
     if (!user) {
       router.replace('/login');
       return;
     }
-    if (status === 'producer') router.replace('/home');
-  }, [loading, producerLoading, router, status, user]);
+    if (status === 'producer') {
+      router.replace('/home');
+      return;
+    }
+    if (status !== 'guest') return;
+    let alive = true;
+    void fetchSharedMenu(user.id, user.email).then((menu) => {
+      if (alive && menu.visible) router.replace('/home');
+    });
+    return () => {
+      alive = false;
+    };
+  }, [loading, locked, producerLoading, router, status, user]);
 
   async function leave() {
     setBusy(true);

@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
+import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
@@ -10,6 +12,7 @@ import { BoletosSection } from '@/components/BoletosSection';
 import { CortesiasSection } from '@/components/CortesiasSection';
 import { CupomSection } from '@/components/CupomSection';
 import { EnvioSection } from '@/components/EnvioSection';
+import { EquipeSection } from '@/components/EquipeSection';
 import { EventArt } from '@/components/EventArt';
 import { EventQrModal } from '@/components/EventQrModal';
 import { EstornosSection } from '@/components/EstornosSection';
@@ -21,6 +24,9 @@ import { TermosSection } from '@/components/TermosSection';
 import { TransferenciasSection } from '@/components/TransferenciasSection';
 import { Wordmark } from '@/components/Wordmark';
 import { colors, siteUrl } from '@/constants/theme';
+import { useAuth } from '@/lib/auth-context';
+import { resolveEventRole, type TeamPermission } from '@/lib/team-access';
+import { fetchMyMembership, loadTeamPermissions } from '@/lib/team';
 import {
   batchIssuanceLabel,
   batchTicketName,
@@ -32,6 +38,7 @@ import {
   type ProducerEventDetail,
 } from '@/lib/events';
 import {
+  downloadFinanceReport,
   fetchEventFinance,
   type EventFinance,
   type FinanceChannel,
@@ -52,7 +59,8 @@ type EventSection =
   | 'balanco'
   | 'termos'
   | 'envio'
-  | 'transferencia';
+  | 'transferencia'
+  | 'equipe';
 
 const EVENT_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'estornos', label: 'Estornos', icon: 'arrow-undo-outline' },
@@ -67,6 +75,23 @@ const EVENT_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicon
   { key: 'retiradas', label: 'Retiradas', icon: 'cash-outline' },
   { key: 'termos', label: 'Termos de uso', icon: 'document-text-outline' },
   { key: 'historico', label: 'Validação', icon: 'checkmark-circle-outline' },
+];
+
+const VIEWER_TABS: {
+  key: EventSection;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  permission: TeamPermission;
+}[] = [
+  { key: 'balanco', label: 'Balanço', icon: 'pulse-outline', permission: 'balanco' },
+  { key: 'boletos', label: 'Boletos', icon: 'barcode-outline', permission: 'boletos' },
+  { key: 'cupom', label: 'Cupom', icon: 'pricetag-outline', permission: 'cupons' },
+  { key: 'estornos', label: 'Estornos', icon: 'arrow-undo-outline', permission: 'estornos' },
+  { key: 'financeiro', label: 'Financeiro', icon: 'wallet-outline', permission: 'financeiro' },
+  { key: 'historico', label: 'Validação', icon: 'checkmark-circle-outline', permission: 'historico' },
+  { key: 'portaria', label: 'Portaria', icon: 'qr-code-outline', permission: 'portaria' },
+  { key: 'retiradas', label: 'Retiradas', icon: 'cash-outline', permission: 'retirada' },
+  { key: 'transferencia', label: 'Transferência', icon: 'swap-horizontal-outline', permission: 'transferencias' },
 ];
 
 const DELIVERY_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -228,7 +253,12 @@ function Kpi({
 
 export default function EventoScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [accessReady, setAccessReady] = useState(false);
+  const [accessEventId, setAccessEventId] = useState<string | null>(null);
+  const [membershipRole, setMembershipRole] = useState<'viewer' | null>(null);
+  const [menuAccess, setMenuAccess] = useState<Record<string, boolean> | null>(null);
   const [detail, setDetail] = useState<ProducerEventDetail | null>(null);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -239,6 +269,7 @@ export default function EventoScreen() {
   const [finance, setFinance] = useState<EventFinance | null>(null);
   const [financeBusy, setFinanceBusy] = useState(false);
   const [financeError, setFinanceError] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [boletos, setBoletos] = useState<EventBoletos | null>(null);
   const [boletosError, setBoletosError] = useState<string | null>(null);
   const [newBatchOpen, setNewBatchOpen] = useState(false);
@@ -349,6 +380,48 @@ export default function EventoScreen() {
   }, [load]);
 
   useEffect(() => {
+    if (!user || !detail) return;
+    const ownerId = detail.event.created_by;
+    if (!ownerId || ownerId === user.id) {
+      setMembershipRole(null);
+      setMenuAccess(null);
+      setAccessEventId(detail.event.id);
+      setAccessReady(true);
+      return;
+    }
+    let alive = true;
+    void fetchMyMembership(detail.event.id, user.id, user.email).then(async (rows) => {
+      if (!alive) return;
+      const email = user.email?.trim().toLowerCase() ?? '';
+      const accepted = rows.find(
+        (row) => row.status === 'accepted' && (row.userId === user.id || row.email.trim().toLowerCase() === email)
+      );
+      if (!accepted) {
+        setMembershipRole(null);
+        setMenuAccess(null);
+      } else {
+        const access = await loadTeamPermissions(detail.event.id, user.id, accepted.permissions);
+        if (!alive) return;
+        setMenuAccess(access);
+        setMembershipRole('viewer');
+      }
+      setAccessEventId(detail.event.id);
+      setAccessReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [detail, user]);
+
+  useEffect(() => {
+    if (membershipRole !== 'viewer' || !menuAccess) return;
+    const current = VIEWER_TABS.find((tab) => tab.key === section);
+    if (!current || menuAccess[current.permission] !== false) return;
+    const next = VIEWER_TABS.find((tab) => menuAccess[tab.permission] !== false);
+    if (next) setSection(next.key);
+  }, [membershipRole, menuAccess, section]);
+
+  useEffect(() => {
     if ((section !== 'financeiro' && section !== 'boletos') || !id || finance || financeBusy || financeError) return;
     void loadFinance();
   }, [section, id, finance, financeBusy, financeError, loadFinance]);
@@ -375,11 +448,34 @@ export default function EventoScreen() {
 
   if (!detail) return null;
   const { event, batches } = detail;
+  const role = user
+    ? resolveEventRole(
+        user.id,
+        event.created_by,
+        membershipRole ? { userId: user.id, status: 'accepted', role: 'viewer' } : null
+      )
+    : null;
+  const canWrite = role === 'owner';
+  const accessKnown = accessReady && accessEventId === event.id;
+  if (!accessKnown || !role) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <Pressable onPress={() => router.back()} style={styles.back}>
+          <Ionicons name="chevron-back" size={22} color={colors.text} />
+          <Text style={styles.backText}>Voltar</Text>
+        </Pressable>
+        {!accessKnown ? <Loader screen /> : <Text style={styles.error}>Você não tem acesso a este evento.</Text>}
+      </SafeAreaView>
+    );
+  }
   const ended = !isOpenEvent(event);
   const gateLink = event.slug ? `${siteUrl}/p/${event.slug}` : null;
   const isHidden = hiddenOverride ?? event.is_hidden;
   const delivery = event.hidden_event_type === 'ticket_delivery';
-  const tabs = delivery ? DELIVERY_TABS : EVENT_TABS;
+  const viewerTabs = VIEWER_TABS.filter((tab) => menuAccess?.[tab.permission] !== false);
+  const tabs = canWrite
+    ? [{ key: 'equipe' as const, label: 'Equipe', icon: 'people-outline' as const }, ...(delivery ? DELIVERY_TABS : EVENT_TABS)]
+    : viewerTabs;
   const sharePath = event.hidden_share_path?.trim();
   const openLink = `${siteUrl}/abrir/${encodeURIComponent(sharePath || event.id)}`;
   const showBoletos = boletoHistoryVisible(boletos);
@@ -452,6 +548,32 @@ export default function EventoScreen() {
       toastTimer.current = setTimeout(() => setToast(null), 2200);
     }
   }
+
+  async function downloadFinancePdf() {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const file = await downloadFinanceReport(event.id);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Financeiro',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast('PDF salvo neste aparelho.');
+        toastTimer.current = setTimeout(() => setToast(null), 2200);
+      }
+    } catch (caught) {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setToast(caught instanceof Error ? caught.message : 'Não foi possível baixar o financeiro.');
+      toastTimer.current = setTimeout(() => setToast(null), 2800);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   const validatedPct = detail.sold > 0 ? (detail.validated / detail.sold) * 100 : 0;
   const validatedPctLabel =
     validatedPct === 0 ? '0%' : validatedPct < 10 ? `${validatedPct.toFixed(1)}%` : `${Math.round(validatedPct)}%`;
@@ -509,6 +631,7 @@ export default function EventoScreen() {
                 </Text>
               ) : null}
             </View>
+            {canWrite ? (
             <View style={styles.hiddenSwitch}>
               <Pressable
                 onPress={() => void changeHidden(true)}
@@ -523,6 +646,9 @@ export default function EventoScreen() {
                 <Text style={[styles.hiddenOptionText, !isHidden && styles.hiddenOptionTextOn]}>Público</Text>
               </Pressable>
             </View>
+            ) : (
+              <Text style={styles.hiddenOptionText}>{isHidden ? 'Oculto' : 'Público'}</Text>
+            )}
           </View>
           {isHidden ? (
             <View style={styles.openLinkRow}>
@@ -574,9 +700,27 @@ export default function EventoScreen() {
             );
           })}
         </ScrollView>
+        {!canWrite && tabs.length === 0 ? (
+          <Text style={styles.empty}>Nenhum menu foi liberado para você neste evento.</Text>
+        ) : null}
+
+        {section === 'equipe' && canWrite ? (
+          <EquipeSection
+            eventId={event.id}
+            ownerId={event.created_by}
+            ownerEmail={user?.email || ''}
+            nonce={reloadKey}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+          />
+        ) : null}
 
         {section === 'envio' && delivery ? (
           <EnvioSection
+            readOnly={!canWrite}
             eventId={event.id}
             nonce={reloadKey}
             onToast={(message) => {
@@ -589,7 +733,7 @@ export default function EventoScreen() {
 
         {section === 'lotes' && !delivery ? (
           <View style={styles.block}>
-            {ended ? null : (
+            {ended || !canWrite ? null : (
               <Pressable
                 onPress={() => {
                   setEditingBatch(null);
@@ -662,7 +806,7 @@ export default function EventoScreen() {
                           </Text>
                         ) : null}
                       </View>
-                      {ended ? null : (
+                      {ended || !canWrite ? null : (
                         <View style={styles.lotActions}>
                           <Pressable
                             disabled={reordering || first}
@@ -712,6 +856,7 @@ export default function EventoScreen() {
 
         {section === 'cupom' ? (
           <CupomSection
+            readOnly={!canWrite}
             eventId={event.id}
             nonce={reloadKey}
             onToast={(message) => {
@@ -724,6 +869,7 @@ export default function EventoScreen() {
 
         {section === 'cortesias' ? (
           <CortesiasSection
+            readOnly={!canWrite}
             eventId={event.id}
             batches={batches}
             ended={ended}
@@ -831,10 +977,16 @@ export default function EventoScreen() {
             ) : finance ? (
               <>
                 <ChannelCard
-                  title="Site (PIX + Crédito)"
+                  title="PIX"
                   accent={colors.success}
                   netColor={colors.success}
-                  data={finance.site}
+                  data={finance.sitePix}
+                />
+                <ChannelCard
+                  title="Cartão de crédito"
+                  accent={colors.blue}
+                  netColor="#3B9BFF"
+                  data={finance.siteCredit}
                 />
                 <ChannelCard
                   title="POS (maquininha)"
@@ -891,6 +1043,22 @@ export default function EventoScreen() {
                 <Text style={styles.financeHint}>
                   Cada compra, cupom e estorno ficam detalhados no financeiro do site.
                 </Text>
+                {canWrite ? (
+                <Pressable
+                  onPress={() => void downloadFinancePdf()}
+                  disabled={pdfBusy}
+                  style={({ pressed }) => [styles.pdfBtn, (pressed || pdfBusy) && styles.pressed]}
+                >
+                  {pdfBusy ? (
+                    <ActivityIndicator color={colors.loginText} />
+                  ) : (
+                    <>
+                      <Ionicons name="download-outline" size={18} color={colors.loginText} />
+                      <Text style={styles.pdfBtnText}>Baixar PDF</Text>
+                    </>
+                  )}
+                </Pressable>
+                ) : null}
               </>
             ) : (
               <Text style={styles.empty}>Nenhum dado financeiro neste evento.</Text>
@@ -904,6 +1072,7 @@ export default function EventoScreen() {
 
         {section === 'retiradas' ? (
           <RetiradasSection
+            readOnly={!canWrite}
             eventId={event.id}
             nonce={reloadKey}
             onToast={(message) => {
@@ -916,6 +1085,7 @@ export default function EventoScreen() {
 
         {section === 'estornos' ? (
           <EstornosSection
+            readOnly={!canWrite}
             eventId={event.id}
             nonce={reloadKey}
             onToast={(message) => {
@@ -946,6 +1116,7 @@ export default function EventoScreen() {
       </ScrollView>
       {event.banner_url ? (
         <View style={styles.hero} pointerEvents="none">
+          <ArtGlow height={coverH} />
           <EventArt uri={event.banner_url} ended={ended} height={coverH} fit="contain" />
         </View>
       ) : null}
@@ -990,6 +1161,24 @@ export default function EventoScreen() {
   );
 }
 
+function ArtGlow({ height }: { height: number }) {
+  const spread = 14;
+  return (
+    <>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,123,255,0)', 'rgba(0,123,255,0.42)']}
+        style={[styles.edgeLight, { top: -spread, height: spread }]}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,123,255,0.42)', 'rgba(0,123,255,0)']}
+        style={[styles.edgeLight, { top: height, height: spread }]}
+      />
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
@@ -1027,6 +1216,7 @@ const styles = StyleSheet.create({
   },
   stage: {
     flex: 1,
+    overflow: 'visible',
   },
   content: {
     flexGrow: 1,
@@ -1046,7 +1236,13 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 2,
     elevation: 4,
-    backgroundColor: colors.bg,
+    overflow: 'visible',
+    backgroundColor: 'transparent',
+  },
+  edgeLight: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   name: {
     color: colors.text,
@@ -1726,6 +1922,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 12,
+  },
+  pdfBtn: {
+    marginTop: 18,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: colors.blue,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  pdfBtnText: {
+    color: colors.loginText,
+    fontSize: 15,
+    fontWeight: '700',
   },
   purchaseMeta: {
     color: colors.muted,

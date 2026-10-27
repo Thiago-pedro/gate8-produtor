@@ -26,10 +26,12 @@ export function RetiradasSection({
   eventId,
   nonce,
   onToast,
+  readOnly = false,
 }: {
   eventId: string;
   nonce: number;
   onToast: (message: string) => void;
+  readOnly?: boolean;
 }) {
   const [data, setData] = useState<WithdrawalSummary | null>(null);
   const [busy, setBusy] = useState(true);
@@ -105,7 +107,7 @@ export function RetiradasSection({
         <Line label="Disponível para retirada" value={formatBRL(Math.max(0, data.available))} />
       </View>
 
-      {data.available > 0.01 && !data.hasPending ? (
+      {readOnly || !(data.available > 0.01 && !data.hasPending) ? null : (
         <View style={styles.form}>
           <Text style={styles.fieldLabel}>Valor a retirar</Text>
           <View style={styles.amountRow}>
@@ -146,7 +148,7 @@ export function RetiradasSection({
             style={[styles.input, styles.notes]}
           />
         </View>
-      ) : null}
+      )}
 
       {data.hasPending ? (
         <Text style={styles.pendingHint}>Já existe um pedido pendente neste evento.</Text>
@@ -183,7 +185,7 @@ export function RetiradasSection({
         <Text style={styles.empty}>Nenhuma retirada registrada.</Text>
       )}
 
-      {data.available > 0.01 ? (
+      {!readOnly && data.available > 0.01 ? (
         <Pressable
           onPress={() => void submit()}
           disabled={!canRequest}

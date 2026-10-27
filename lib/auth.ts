@@ -1,4 +1,6 @@
+import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 import { siteUrl } from '@/constants/theme';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
@@ -22,9 +24,23 @@ type AuthListener = (user: AuthUser | null) => void;
 let memorySession: Session | null = null;
 const listeners = new Set<AuthListener>();
 
-const storeOptions: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
-};
+const storeOptions: SecureStore.SecureStoreOptions | undefined =
+  Platform.OS === 'ios' ? { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK } : undefined;
+
+function sessionFile() {
+  return new File(Paths.document, 'gate8-produtor-session.json');
+}
+
+function parseSession(raw: string | null | undefined): Session | null {
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw) as Session;
+    if (!session?.accessToken || !session.user?.id) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
 
 export function subscribeAuth(listener: AuthListener) {
   listeners.add(listener);
@@ -190,19 +206,39 @@ function toUser(raw: {
 async function saveSession(session: Session) {
   memorySession = session;
   emitAuth(session.user);
+  const raw = JSON.stringify(session);
   try {
-    await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session), storeOptions);
+    const file = sessionFile();
+    if (file.exists) file.delete();
+    file.create();
+    file.write(raw);
   } catch {
-    // Expo Go / web can fail here; session still lives in memory.
+    // The secure copy below still keeps the login.
+  }
+  try {
+    await SecureStore.setItemAsync(SESSION_KEY, raw, storeOptions);
+  } catch {
+    // The file copy above still keeps the login.
   }
 }
 
 async function readSession(): Promise<Session | null> {
   if (memorySession) return memorySession;
   try {
-    const raw = await SecureStore.getItemAsync(SESSION_KEY, storeOptions);
-    if (!raw) return null;
-    memorySession = JSON.parse(raw) as Session;
+    const secure = parseSession(await SecureStore.getItemAsync(SESSION_KEY, storeOptions));
+    if (secure) {
+      memorySession = secure;
+      return memorySession;
+    }
+  } catch {
+    // Try the file copy.
+  }
+  try {
+    const file = sessionFile();
+    if (!file.exists) return null;
+    const stored = parseSession(await file.text());
+    if (!stored) return null;
+    memorySession = stored;
     return memorySession;
   } catch {
     return null;
@@ -214,6 +250,12 @@ async function clearSession() {
   emitAuth(null);
   try {
     await SecureStore.deleteItemAsync(SESSION_KEY, storeOptions);
+  } catch {
+    // ignore
+  }
+  try {
+    const file = sessionFile();
+    if (file.exists) file.delete();
   } catch {
     // ignore
   }
@@ -365,6 +407,10 @@ function withTimeout<T>(work: Promise<T>, ms = 8000) {
   });
 }
 
+function rejectedSession(status: number) {
+  return status === 400 || status === 401 || status === 403;
+}
+
 export async function restoreSession() {
   const stored = await readSession();
   if (!stored?.accessToken) return null;
@@ -376,28 +422,34 @@ export async function restoreSession() {
     return user;
   } catch (error) {
     if (error instanceof Error && error.message === 'timeout') return stored.user;
-    if (!stored.refreshToken) {
-      await clearSession();
-      return null;
-    }
+    if (!stored.refreshToken) return stored.user;
+  }
 
-    const response = await withTimeout(
+  let response: Response;
+  try {
+    response = await withTimeout(
       fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ refresh_token: stored.refreshToken }),
-    })
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ refresh_token: stored.refreshToken }),
+      })
     );
+  } catch {
+    return stored.user;
+  }
 
-    try {
-      const session = await parseAuthResponse(response);
-      await saveSession(session);
-      return session.user;
-    } catch (refreshError) {
-      if (refreshError instanceof Error && refreshError.message === 'timeout') return stored.user;
-      await clearSession();
-      return null;
-    }
+  if (rejectedSession(response.status)) {
+    await clearSession();
+    return null;
+  }
+  if (!response.ok) return stored.user;
+
+  try {
+    const session = await parseAuthResponse(response);
+    await saveSession(session);
+    return session.user;
+  } catch {
+    return stored.user;
   }
 }
 

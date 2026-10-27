@@ -262,6 +262,8 @@ export async function fetchEventCoupon(eventId: string): Promise<EventCoupon | n
 }
 
 export async function saveEventCoupon(eventId: string, coupon: EventCouponDraft) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
   if (!coupon.active) return;
   await callServerFn(FN_COUPON, {
     event_id: eventId,
@@ -273,6 +275,8 @@ export async function saveEventCoupon(eventId: string, coupon: EventCouponDraft)
 }
 
 export async function saveManagedCoupon(eventId: string, coupon: EventCouponDraft) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
   if (!coupon.active && !coupon.code.trim()) {
     await callServerFn(FN_COUPON_CLEAR, { event_id: eventId });
     return;

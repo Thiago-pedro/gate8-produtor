@@ -143,6 +143,8 @@ export async function createDeliveryGuest(input: {
   half: number;
   custom: string;
 }) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(input.eventId);
   await rest('rpc/create_ticket_delivery_guest', {
     method: 'POST',
     body: JSON.stringify({
@@ -156,7 +158,18 @@ export async function createDeliveryGuest(input: {
   });
 }
 
+async function assertGuestOwner(guestId: string) {
+  const { assertEventOwner } = await import('@/lib/team');
+  const rows = await rest<Row[]>(
+    `ticket_delivery_guests?select=event_id&id=eq.${encodeURIComponent(guestId)}&limit=1`
+  );
+  const eventId = text(rows[0]?.event_id);
+  if (!eventId) throw new Error('Participante não encontrado.');
+  await assertEventOwner(eventId);
+}
+
 export async function addDeliveryTickets(guestId: string, kind: 'full' | 'half', quantity: number) {
+  await assertGuestOwner(guestId);
   await rest('rpc/add_ticket_delivery_tickets', {
     method: 'POST',
     body: JSON.stringify({ _guest_id: guestId, _kind: kind, _quantity: quantity }),
@@ -164,6 +177,7 @@ export async function addDeliveryTickets(guestId: string, kind: 'full' | 'half',
 }
 
 export async function cancelDeliveryTicket(guestId: string, ticketId: string) {
+  await assertGuestOwner(guestId);
   await rest('rpc/cancel_ticket_delivery_tickets', {
     method: 'POST',
     body: JSON.stringify({ _guest_id: guestId, _ticket_ids: [ticketId] }),
@@ -171,10 +185,12 @@ export async function cancelDeliveryTicket(guestId: string, ticketId: string) {
 }
 
 export async function sendDeliveryInvite(guestId: string) {
+  await assertGuestOwner(guestId);
   await callServerFn(FN_SEND, { guestId });
 }
 
 export async function archiveDeliveryGuest(guestId: string) {
+  await assertGuestOwner(guestId);
   await callServerFn(FN_ARCHIVE, { guestId });
 }
 

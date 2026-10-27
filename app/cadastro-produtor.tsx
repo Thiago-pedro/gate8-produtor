@@ -114,7 +114,7 @@ function Chip({
 
 export default function CadastroProdutorScreen() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, locked } = useAuth();
   const { status, loading: producerLoading, refresh } = useProducer();
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState<ProducerDraft | null>(null);
@@ -123,13 +123,13 @@ export default function CadastroProdutorScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading || producerLoading) return;
+    if (loading || producerLoading || locked) return;
     if (!user) {
       router.replace('/login');
       return;
     }
     if (status === 'producer') router.replace('/home');
-  }, [loading, producerLoading, router, status, user]);
+  }, [loading, locked, producerLoading, router, status, user]);
 
   useEffect(() => {
     if (!user || draft) return;

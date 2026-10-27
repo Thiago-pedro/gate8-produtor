@@ -33,10 +33,12 @@ export function CupomSection({
   eventId,
   nonce,
   onToast,
+  readOnly = false,
 }: {
   eventId: string;
   nonce: number;
   onToast: (message: string) => void;
+  readOnly?: boolean;
 }) {
   const [saved, setSaved] = useState<EventCoupon | null>(null);
   const [draft, setDraft] = useState<EventCouponDraft>(EMPTY_COUPON);
@@ -121,7 +123,7 @@ export function CupomSection({
         <Text style={styles.empty}>Este evento ainda não tem cupom.</Text>
       )}
 
-      <View style={styles.card}>
+      {readOnly ? null : <View style={styles.card}>
         <View style={styles.switchRow}>
           <View style={styles.flex}>
             <Text style={styles.label}>Cupom ativo</Text>
@@ -210,7 +212,7 @@ export function CupomSection({
             </>
           )}
         </Pressable>
-      </View>
+      </View>}
     </View>
   );
 }

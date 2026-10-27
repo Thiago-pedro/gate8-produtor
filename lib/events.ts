@@ -1,4 +1,5 @@
 import { getAccessToken } from '@/lib/auth';
+import { assertEventOwner } from '@/lib/team';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 
 export type ProducerEvent = {
@@ -14,6 +15,7 @@ export type ProducerEvent = {
   is_hidden: boolean;
   sold: number;
   quantity: number;
+  access?: 'owner' | 'viewer';
 };
 
 export type EventBatch = {
@@ -45,6 +47,7 @@ export type EventCheckin = {
 export type ProducerEventDetail = {
   event: {
     id: string;
+    created_by: string | null;
     name: string;
     slug: string;
     event_date: string | null;
@@ -151,10 +154,12 @@ async function restPatch(path: string, body: unknown) {
 }
 
 export async function setEventHidden(eventId: string, hidden: boolean) {
+  await assertEventOwner(eventId);
   await restPatch(`events?id=eq.${encodeURIComponent(eventId)}`, { is_hidden: hidden });
 }
 
 export async function reorderTicketBatches(eventId: string, batchIds: string[]) {
+  await assertEventOwner(eventId);
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/reorder_ticket_batches`, {
     method: 'POST',
     headers: await headers(),
@@ -476,6 +481,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
   return {
     event: {
       id: text(row.id),
+      created_by: row.created_by ? text(row.created_by) : null,
       name: text(row.name),
       slug: text(row.slug),
       event_date: row.event_date ? text(row.event_date) : null,
@@ -601,6 +607,7 @@ export async function createTicketBatch(input: {
   validUntil: string | null;
   active: boolean;
 }) {
+  await assertEventOwner(input.eventId);
   const payload = { event_id: input.eventId, ...batchFields(input) };
   try {
     await restPost('ticket_batches', payload);
@@ -630,6 +637,7 @@ export async function updateTicketBatch(
     active: boolean;
   }
 ) {
+  await assertEventOwner(input.eventId);
   const payload = batchFields(input);
   const path = `ticket_batches?id=eq.${encodeURIComponent(batchId)}`;
   try {

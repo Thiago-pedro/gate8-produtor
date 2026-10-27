@@ -4,15 +4,17 @@ import { NavigationBar } from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Appearance, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackground } from '@/components/AppBackground';
+import { BiometricGate } from '@/components/BiometricGate';
 import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ProducerProvider, useProducer } from '@/lib/producer-context';
 
 SplashScreen.preventAutoHideAsync();
+Appearance.setColorScheme('dark');
 
 function hideNativeSplash() {
   if (!isRunningInExpoGo()) {
@@ -56,7 +58,7 @@ const navTheme = {
 };
 
 function BootSplash({ children }: { children: ReactNode }) {
-  const { loading } = useAuth();
+  const { loading, locked } = useAuth();
   const { loading: producerLoading } = useProducer();
   const segments = useSegments();
   const [cover, setCover] = useState(true);
@@ -67,7 +69,11 @@ function BootSplash({ children }: { children: ReactNode }) {
   const fading = useRef(false);
   const leaf = segments[segments.length - 1];
   const destination =
-    leaf === 'login' || leaf === 'home' || leaf === 'convite' || leaf === 'cadastro-produtor';
+    locked ||
+    leaf === 'login' ||
+    leaf === 'home' ||
+    leaf === 'convite' ||
+    leaf === 'cadastro-produtor';
 
   useEffect(() => {
     hideNativeSplash();
@@ -120,6 +126,7 @@ function BootSplash({ children }: { children: ReactNode }) {
           </View>
         </Modal>
       ) : null}
+      {(expoGo ? !cover : held) ? <BiometricGate /> : null}
     </View>
   );
 }
@@ -149,6 +156,7 @@ export default function RootLayout() {
                 <Stack.Screen name="convite" options={{ animation: 'none' }} />
                 <Stack.Screen name="cadastro-produtor" />
                 <Stack.Screen name="home" options={{ animation: 'none' }} />
+                <Stack.Screen name="compartilhados" />
                 <Stack.Screen name="conta" />
                 <Stack.Screen name="evento/novo" />
                 <Stack.Screen name="evento/[id]" />

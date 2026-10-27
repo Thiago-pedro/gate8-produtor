@@ -33,6 +33,7 @@ export function CortesiasSection({
   nonce,
   onToast,
   onIssued,
+  readOnly = false,
 }: {
   eventId: string;
   batches: EventBatch[];
@@ -40,6 +41,7 @@ export function CortesiasSection({
   nonce: number;
   onToast: (message: string) => void;
   onIssued: () => void;
+  readOnly?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>('standalone');
   const [name, setName] = useState('');
@@ -190,8 +192,12 @@ export function CortesiasSection({
         Emita um ingresso grátis avulso ou coloque direto na carteira de quem já tem conta Gate8.
       </Text>
 
-      {ended ? (
-        <Text style={styles.empty}>Evento encerrado. Não dá mais para emitir cortesia.</Text>
+      {ended || readOnly ? (
+        <Text style={styles.empty}>
+          {readOnly
+            ? 'Consulta apenas. A emissão de cortesia fica com o proprietário do evento.'
+            : 'Evento encerrado. Não dá mais para emitir cortesia.'}
+        </Text>
       ) : (
         <View style={styles.card}>
           <Text style={styles.lead}>Preencha os dados, escolha o lote e emita a cortesia.</Text>

@@ -52,6 +52,10 @@ function withFullScreenSplash(config) {
       if (name === 'AppTheme' || name === 'Theme.App.SplashScreen') {
         upsertItem(style, 'android:windowBackground', '@color/splashscreen_background');
       }
+      if (name === 'AppTheme') {
+        upsertItem(style, 'android:navigationBarColor', '@android:color/black');
+        upsertItem(style, 'android:windowLightNavigationBar', 'false');
+      }
       if (name === 'Theme.App.SplashScreen') {
         upsertItem(style, 'android:windowSplashScreenBackground', '@color/splashscreen_background');
         upsertItem(style, 'android:windowSplashScreenAnimatedIcon', '@drawable/splashscreen_blank');

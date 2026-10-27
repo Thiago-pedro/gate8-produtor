@@ -14,7 +14,8 @@
         "CFBundleDisplayName": "Gate8 Manager",
         "LSApplicationQueriesSchemes": [
           "gate8"
-        ]
+        ],
+        "NSFaceIDUsageDescription": "O Gate8 usa o rosto ou a digital para abrir a sua conta neste celular."
       }
     },
     "android": {
@@ -38,6 +39,12 @@
       ],
       "./plugins/withFullScreenSplash.js",
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "O Gate8 usa o rosto ou a digital para abrir a sua conta neste celular."
+        }
+      ],
       [
         "expo-image-picker",
         {

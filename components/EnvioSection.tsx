@@ -23,10 +23,12 @@ export function EnvioSection({
   eventId,
   nonce,
   onToast,
+  readOnly = false,
 }: {
   eventId: string;
   nonce: number;
   onToast: (message: string) => void;
+  readOnly?: boolean;
 }) {
   const [guests, setGuests] = useState<DeliveryGuest[] | null>(null);
   const [validatedTotal, setValidatedTotal] = useState<number | null>(null);
@@ -170,7 +172,7 @@ export function EnvioSection({
         <Mini label="Validados" value={String(validated)} />
       </View>
 
-      <View style={styles.form}>
+      {readOnly ? null : <View style={styles.form}>
         <Text style={styles.formTitle}>Adicionar participante</Text>
         <TextInput
           value={name}
@@ -206,7 +208,7 @@ export function EnvioSection({
         >
           <Text style={styles.primaryText}>{adding ? 'Adicionando...' : 'Adicionar participante'}</Text>
         </Pressable>
-      </View>
+      </View>}
 
       <TextInput
         value={query}
@@ -271,9 +273,11 @@ export function EnvioSection({
               >
                 <Text style={styles.actionText}>{open ? 'Fechar' : 'Ingressos'}</Text>
               </Pressable>
+              {readOnly ? null : (
               <Pressable onPress={() => setPendingDelete(guest)} style={styles.action}>
                 <Text style={styles.actionDanger}>Excluir</Text>
               </Pressable>
+              )}
             </View>
             {open ? (
               <View style={styles.manage}>
@@ -283,7 +287,7 @@ export function EnvioSection({
                       {ticket.kind === 'half' ? 'Meia' : 'Inteira'} · {(ticket.code || ticket.id).slice(0, 8)}
                       {ticket.status === 'used' ? ' · validado' : ''}
                     </Text>
-                    {ticket.status === 'used' ? null : (
+                    {ticket.status === 'used' || readOnly ? null : (
                       <Pressable
                         onPress={() => {
                           void (async () => {
@@ -304,6 +308,8 @@ export function EnvioSection({
                     )}
                   </View>
                 ))}
+                {readOnly ? null : (
+                <>
                 <View style={styles.filters}>
                   <Pressable
                     onPress={() => setKind('full')}
@@ -322,6 +328,8 @@ export function EnvioSection({
                 <Pressable onPress={() => void addTickets(guest.id)} style={styles.secondary}>
                   <Text style={styles.secondaryText}>Adicionar ingresso</Text>
                 </Pressable>
+                </>
+                )}
               </View>
             ) : null}
               </>

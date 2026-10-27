@@ -3,13 +3,20 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Loader } from '@/components/Loader';
 import { SiteFooter } from '@/components/SiteFooter';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { fetchSharedMenu } from '@/lib/team';
+import {
+  biometricsAvailable,
+  confirmDeviceOwner,
+  readBiometricPreference,
+  writeBiometricPreference,
+} from '@/lib/biometric';
 import { lookupCep } from '@/lib/create-event';
 import {
   fetchProducerAccount,
@@ -102,22 +109,32 @@ function Chip({ label, active, onPress }: { label: string; active: boolean; onPr
 
 export default function ContaScreen() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, locked } = useAuth();
   const { status, loading: producerLoading } = useProducer();
   const [draft, setDraft] = useState<ProducerDraft | null>(null);
   const [logo, setLogo] = useState<{ uri: string; type: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [bio, setBio] = useState<'on' | 'off' | 'hidden'>('hidden');
+  const [bioOff, setBioOff] = useState(false);
 
   useEffect(() => {
-    if (loading || producerLoading) return;
+    if (loading || producerLoading || locked) return;
     if (!user) {
       router.replace('/login');
       return;
     }
-    if (status === 'guest') router.replace('/convite');
-  }, [loading, producerLoading, router, status, user]);
+    if (status !== 'guest') return;
+    let alive = true;
+    void fetchSharedMenu(user.id, user.email).then((menu) => {
+      if (!alive) return;
+      router.replace(menu.visible ? '/home' : '/convite');
+    });
+    return () => {
+      alive = false;
+    };
+  }, [loading, locked, producerLoading, router, status, user]);
 
   useEffect(() => {
     if (!user || status !== 'producer') return;
@@ -133,6 +150,37 @@ export default function ContaScreen() {
       alive = false;
     };
   }, [status, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      const available = await biometricsAvailable();
+      if (!available) {
+        if (!cancelled) setBio('hidden');
+        return;
+      }
+      const preference = await readBiometricPreference(user.id);
+      if (!cancelled) setBio(preference === 'on' ? 'on' : 'off');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  function toggleBio() {
+    if (!user) return;
+    if (bio === 'on') {
+      setBioOff(true);
+      return;
+    }
+    void (async () => {
+      const accepted = await confirmDeviceOwner();
+      if (!accepted) return;
+      await writeBiometricPreference(user.id, 'on');
+      setBio('on');
+    })();
+  }
 
   function patch<K extends keyof ProducerDraft>(key: K, value: ProducerDraft[K]) {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
@@ -231,6 +279,20 @@ export default function ContaScreen() {
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {saved ? <Text style={styles.saved}>{saved}</Text> : null}
+
+        {bio !== 'hidden' ? (
+          <Pressable onPress={toggleBio} style={styles.bioCard}>
+            <Ionicons name="finger-print-outline" size={22} color={colors.blue} />
+            <View style={styles.bioCopy}>
+              <Text style={styles.bioTitle}>Desbloqueio do celular</Text>
+              <Text style={styles.bioSub}>
+                {bio === 'on'
+                  ? 'Ativado. O celular abre a sua conta.'
+                  : 'Use a digital ou o rosto deste aparelho.'}
+              </Text>
+            </View>
+          </Pressable>
+        ) : null}
 
         <Text style={styles.section}>Dados da conta</Text>
         <Field label="Nome completo" value={draft.full_name} locked />
@@ -404,6 +466,27 @@ export default function ContaScreen() {
         </Pressable>
         <SiteFooter />
       </ScrollView>
+      <Modal visible={bioOff} transparent animationType="fade" onRequestClose={() => setBioOff(false)}>
+        <View style={styles.dialogOverlay}>
+          <View style={styles.dialogCard}>
+            <Text style={styles.dialogTitle}>Desbloqueio do celular</Text>
+            <Text style={styles.dialogMessage}>O Gate8 deixa de pedir a digital ou o rosto para abrir.</Text>
+            <Pressable onPress={() => setBioOff(false)} style={styles.dialogGhost}>
+              <Text style={styles.dialogGhostText}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setBioOff(false);
+                if (!user) return;
+                void writeBiometricPreference(user.id, 'off').then(() => setBio('off'));
+              }}
+              style={styles.dialogPrimary}
+            >
+              <Text style={styles.dialogPrimaryText}>Desativar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -446,6 +529,87 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginTop: 12,
+  },
+  bioCard: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.35)',
+    borderRadius: 16,
+    backgroundColor: colors.bgCard,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bioCopy: {
+    flex: 1,
+  },
+  bioTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  bioSub: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  dialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(5,13,31,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.bgCard,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.35)',
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 16,
+  },
+  dialogTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  dialogMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  dialogPrimary: {
+    height: 46,
+    marginTop: 8,
+    borderRadius: 24,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogPrimaryText: {
+    color: colors.loginText,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  dialogGhost: {
+    height: 46,
+    marginTop: 18,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogGhostText: {
+    color: colors.blue,
+    fontWeight: '800',
+    fontSize: 14,
   },
   note: {
     color: colors.muted,

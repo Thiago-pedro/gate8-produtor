@@ -190,6 +190,8 @@ export async function requestWithdrawal(input: {
   notes: string;
   summary: WithdrawalSummary;
 }) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(input.eventId);
   const user = await getAuthUser();
   if (!user?.id) throw new Error('Entre na conta de produtor para continuar.');
   if (input.summary.producerId && input.summary.producerId !== user.id) {

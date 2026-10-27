@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventArt } from '@/components/EventArt';
@@ -16,6 +16,7 @@ import { fetchProducerEvents, isOpenEvent, type ProducerEvent } from '@/lib/even
 import { formatEventDate } from '@/lib/format';
 import { fetchProducerFirstName } from '@/lib/producer';
 import { useProducer } from '@/lib/producer-context';
+import { fetchSharedMenu, type SharedMenu } from '@/lib/team';
 
 function formatDate(value: string | null) {
   return formatEventDate(value);
@@ -31,9 +32,12 @@ const FILTERS: { key: EventFilter; label: string }[] = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { user, loading, signOut } = useAuth();
   const { status, loading: producerLoading } = useProducer();
   const [events, setEvents] = useState<ProducerEvent[]>([]);
+  const [shared, setShared] = useState<SharedMenu | null>(null);
+  const [teamGate, setTeamGate] = useState<'unknown' | 'in' | 'out'>('unknown');
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -54,8 +58,24 @@ export default function HomeScreen() {
       router.replace('/login');
       return;
     }
-    if (status === 'guest') router.replace('/convite');
+    if (status !== 'guest') return;
+    let alive = true;
+    void fetchSharedMenu(user.id, user.email).then((menu) => {
+      if (!alive) return;
+      if (menu.visible) setTeamGate('in');
+      else {
+        setTeamGate('out');
+        router.replace('/convite');
+      }
+    });
+    return () => {
+      alive = false;
+    };
   }, [loading, producerLoading, router, status, user]);
+
+  useEffect(() => {
+    if (status === 'producer') setTeamGate('in');
+  }, [status]);
 
   useEffect(() => {
     if (!user?.id || status !== 'producer') return;
@@ -73,23 +93,40 @@ export default function HomeScreen() {
     if (!soft) setBusy(true);
     setError(null);
     try {
-      setEvents(await fetchProducerEvents(user.id));
+      const owned = status === 'producer' ? await fetchProducerEvents(user.id) : [];
+      setEvents(owned.map((event) => ({ ...event, access: 'owner' as const })));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível carregar os eventos.');
     } finally {
       setBusy(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [status, user]);
 
   useFocusEffect(
     useCallback(() => {
-      if (user && status === 'producer') {
+      if (user && teamGate === 'in') {
         void load(sawList.current);
         sawList.current = true;
       }
-    }, [load, status, user])
+    }, [load, teamGate, user])
   );
+
+  useEffect(() => {
+    if (!user || teamGate !== 'in') return;
+    let alive = true;
+    const tick = () => {
+      void fetchSharedMenu(user.id, user.email).then((menu) => {
+        if (alive) setShared(menu);
+      });
+    };
+    tick();
+    const timer = setInterval(tick, 15000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [teamGate, user]);
 
   const visible = useMemo(() => {
     if (filter === 'active') return events.filter(isOpenEvent);
@@ -99,14 +136,30 @@ export default function HomeScreen() {
 
   const emptyMessage =
     events.length === 0
-      ? 'Muito calmo,\nTá faltando festa por aqui! 🎉\nCrie seu evento.'
+      ? status === 'producer'
+        ? 'Muito calmo,\nTá faltando festa por aqui! 🎉\nCrie seu evento.'
+        : 'Nenhum evento foi compartilhado com você.'
       : filter === 'active'
         ? 'Nenhuma festa ativa por aqui.'
         : filter === 'ended'
           ? 'Nenhuma festa encerrada por aqui.'
           : 'Muito calmo,\nTá faltando festa por aqui! 🎉\nCrie seu evento.';
 
-  if (loading || producerLoading || !user || status !== 'producer') {
+  const side = width >= 700 ? 32 : width >= 420 ? 24 : 20;
+  const logoWidth = Math.min(200, Math.max(168, Math.round(width * 0.46)));
+  const logoHeight = logoWidth / 5.4;
+  const accountHeight = Math.min(112, Math.max(84, Math.round(width * 0.2)));
+  const avatar = Math.min(72, Math.round(accountHeight * 0.62));
+  const nameSize = Math.min(28, Math.max(18, Math.round(width * 0.048)));
+  const accountSubSize = Math.min(16, Math.max(13, Math.round(width * 0.034)));
+  const createHeight = Math.min(64, Math.max(52, Math.round(width * 0.133)));
+  const createTextSize = Math.min(20, Math.max(16, Math.round(width * 0.044)));
+  const bannerHeight = Math.round((width - side * 2) / 2.7);
+  const eventTitleSize = Math.min(22, Math.max(17, Math.round(width * 0.046)));
+  const eventMetaSize = Math.min(15, Math.max(13, Math.round(width * 0.033)));
+  const helloName = producerName || user?.name?.split(' ')[0] || '';
+
+  if (loading || producerLoading || !user || teamGate !== 'in') {
     return (
       <View style={styles.boot}>
         <Loader screen />
@@ -116,62 +169,20 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <Wordmark height={24} />
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => router.push('/conta')}
-            hitSlop={8}
-            style={styles.accountBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Minha conta"
-          >
-            <Ionicons name="person-outline" size={16} color={colors.blue} />
-            <Text style={styles.accountText} numberOfLines={1}>
-              Minha conta
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setLeaveOpen(true)}
-            hitSlop={12}
-            style={styles.exitBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Sair"
-          >
-            <Ionicons name="exit-outline" size={24} color="rgba(255,255,255,0.88)" />
-          </Pressable>
-        </View>
-      </View>
-
-      <Text style={styles.hello}>Olá{producerName ? `, ${producerName}` : ''}</Text>
-      <View style={styles.leadRow}>
-        <Text style={styles.lead}>Meus eventos</Text>
+      <View style={styles.top}>
+        <Wordmark height={logoHeight} />
         <Pressable
-          onPress={() => router.push('/evento/novo')}
-          style={({ pressed }) => [styles.createBtn, pressed && styles.cardPressed]}
+          onPress={() => setLeaveOpen(true)}
+          style={styles.exitBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Sair"
         >
-          <Ionicons name="add" size={16} color={colors.loginText} />
-          <Text style={styles.createText}>Criar evento</Text>
+          <Ionicons name="exit-outline" size={22} color={colors.text} />
         </Pressable>
       </View>
 
-      <View style={styles.filters}>
-        {FILTERS.map((item) => {
-          const on = filter === item.key;
-          return (
-            <Pressable
-              key={item.key}
-              onPress={() => setFilter(item.key)}
-              style={[styles.filterChip, on && styles.filterChipOn]}
-            >
-              <Text style={[styles.filterText, on && styles.filterTextOn]}>{item.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
       <ScrollView
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingHorizontal: side }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -183,45 +194,119 @@ export default function HomeScreen() {
           />
         }
       >
+        {status === 'producer' ? (
+          <Pressable
+            onPress={() => router.push('/conta')}
+            accessibilityRole="button"
+            accessibilityLabel="Minha conta"
+            style={({ pressed }) => [
+              styles.accountCard,
+              { minHeight: accountHeight, borderRadius: 22 },
+              pressed && styles.cardPressed,
+            ]}
+          >
+            <View style={[styles.avatar, { width: avatar, height: avatar, borderRadius: avatar / 2 }]}>
+              <Ionicons name="person" size={Math.round(avatar * 0.46)} color={colors.blue} />
+            </View>
+            <View style={styles.accountCopy}>
+              <Text style={[styles.accountName, { fontSize: nameSize }]} numberOfLines={1}>
+                Olá{helloName ? `, ${helloName}` : ''}
+              </Text>
+              <Text style={[styles.accountSub, { fontSize: accountSubSize }]}>Minha conta</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.text} />
+          </Pressable>
+        ) : null}
+
+        {status === 'producer' ? (
+          <Pressable
+            onPress={() => router.push('/evento/novo')}
+            style={({ pressed }) => [
+              styles.createBtn,
+              { height: createHeight, borderRadius: 22, marginTop: 16 },
+              pressed && styles.cardPressed,
+            ]}
+          >
+            <Ionicons name="add" size={22} color={colors.loginText} />
+            <Text style={[styles.createText, { fontSize: createTextSize }]}>Criar evento</Text>
+          </Pressable>
+        ) : null}
+
+        {shared?.visible ? (
+          <Pressable
+            onPress={() => router.push('/compartilhados')}
+            style={({ pressed }) => [styles.sharedBtn, pressed && styles.cardPressed]}
+          >
+            <Ionicons name="people-outline" size={18} color={colors.blue} />
+            <Text style={styles.sharedText}>Evento Compartilhado</Text>
+            {shared.pendingCount > 0 ? (
+              <View style={styles.sharedBadge}>
+                <Text style={styles.sharedBadgeText}>{shared.pendingCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
+
+        {status === 'producer' ? <Text style={styles.lead}>MEUS EVENTOS</Text> : null}
+
+        {status === 'producer' ? (
+          <View style={styles.filters}>
+            {FILTERS.map((item) => {
+              const on = filter === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  onPress={() => setFilter(item.key)}
+                  style={[styles.filterChip, on && styles.filterChipOn]}
+                >
+                  <Text style={[styles.filterText, on && styles.filterTextOn]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
         {busy ? <Loader screen /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {!busy && !error && visible.length === 0 ? (
+        {!busy && !error && status === 'producer' && visible.length === 0 ? (
           <Text style={styles.empty}>{emptyMessage}</Text>
         ) : null}
         {visible.map((event) => {
           const ended = !isOpenEvent(event);
           return (
-          <Pressable
-            key={event.id}
-            onPress={() => router.push({ pathname: '/evento/[id]', params: { id: event.id } })}
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-          >
-            <EventArt uri={event.banner_url} ended={ended} height={140} />
-            <View style={styles.cardBody}>
-              <View style={styles.nameRow}>
-                <Text style={styles.eventName} numberOfLines={2}>
-                  {event.name}
-                </Text>
-                {event.is_hidden ? (
-                  <View style={styles.hiddenBadge}>
-                    <Text style={styles.hiddenBadgeText}>Oculto</Text>
+            <Pressable
+              key={event.id}
+              onPress={() => router.push({ pathname: '/evento/[id]', params: { id: event.id } })}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            >
+              <EventArt uri={event.banner_url} ended={ended} height={bannerHeight} />
+              <View style={styles.cardBody}>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.eventName, { fontSize: eventTitleSize }]} numberOfLines={2}>
+                    {event.name}
+                  </Text>
+                  {event.is_hidden ? (
+                    <View style={styles.hiddenBadge}>
+                      <Text style={styles.hiddenBadgeText}>Oculto</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.metaRow}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.blue} />
+                  <Text style={[styles.eventMeta, { fontSize: eventMetaSize }]} numberOfLines={1}>
+                    {formatDate(event.event_date)}
+                  </Text>
+                </View>
+                {event.location ? (
+                  <View style={styles.metaRow}>
+                    <Ionicons name="location-outline" size={16} color={colors.blue} />
+                    <Text style={[styles.eventMeta, { fontSize: eventMetaSize }]} numberOfLines={1}>
+                      {event.location}
+                    </Text>
                   </View>
                 ) : null}
               </View>
-              <View style={styles.metaRow}>
-                <Ionicons name="calendar-outline" size={14} color={colors.blue} />
-                <Text style={styles.eventMeta}>{formatDate(event.event_date)}</Text>
-              </View>
-              {event.location ? (
-                <View style={styles.metaRow}>
-                  <Ionicons name="location-outline" size={14} color={colors.blue} />
-                  <Text style={styles.eventMeta} numberOfLines={1}>
-                    {event.location}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </Pressable>
+            </Pressable>
           );
         })}
         <SiteFooter />
@@ -275,86 +360,84 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  header: {
-    height: 44,
-    marginHorizontal: 16,
-    marginTop: 19,
-    paddingBottom: 8,
-    flexDirection: 'row',
+  top: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  accountBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 32,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: colors.blue,
-    backgroundColor: 'transparent',
-  },
-  accountText: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '600',
+    justifyContent: 'center',
+    marginTop: 16,
+    marginBottom: 28,
+    minHeight: 48,
   },
   exitBtn: {
-    height: 36,
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    width: 48,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  hello: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: '700',
-    paddingHorizontal: 16,
-    marginTop: 18,
-  },
-  lead: {
-    color: colors.muted,
-    fontSize: 13,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    flex: 1,
-  },
-  leadRow: {
+  accountCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 14,
     paddingHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 10,
-    gap: 10,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(8, 24, 52, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(70, 120, 180, 0.45)',
+  },
+  avatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.blue,
+    backgroundColor: 'rgba(0, 123, 255, 0.08)',
+  },
+  accountCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  accountName: {
+    color: colors.text,
+    fontWeight: '700',
+  },
+  accountSub: {
+    color: 'rgba(255,255,255,0.62)',
+    fontWeight: '400',
+  },
+  lead: {
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 2.4,
+    marginTop: 28,
+    marginBottom: 14,
   },
   filters: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 6,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 16,
   },
   filterChip: {
-    height: 32,
-    paddingHorizontal: 12,
+    height: 36,
+    paddingHorizontal: 16,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(6, 16, 36, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 168, 200, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterChipOn: {
     backgroundColor: colors.blue,
+    borderColor: colors.blue,
   },
   filterText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 13,
+    fontWeight: '600',
   },
   filterTextOn: {
     color: colors.loginText,
@@ -362,22 +445,71 @@ const styles = StyleSheet.create({
   createBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.blue,
-    borderRadius: 999,
-    height: 36,
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#087BFF',
   },
   createText: {
     color: colors.loginText,
-    fontSize: 13,
     fontWeight: '700',
   },
+  sharedBtn: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.45)',
+    backgroundColor: 'rgba(0,123,255,0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  sharedText: { color: colors.text, fontSize: 15, fontWeight: '700', flex: 1 },
+  sharedBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sharedBadgeText: { color: colors.loginText, fontSize: 12, fontWeight: '700' },
+  inviteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.45)',
+    backgroundColor: 'rgba(0,123,255,0.08)',
+    padding: 14,
+  },
+  inviteCopy: { flex: 1, gap: 2 },
+  inviteTitle: { color: colors.blue, fontSize: 12, fontWeight: '700' },
+  inviteText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  acceptBtn: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptText: { color: colors.loginText, fontSize: 13, fontWeight: '700' },
+  readBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.blue,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  readBadgeText: { color: colors.blue, fontSize: 10, fontWeight: '700' },
   list: {
     flexGrow: 1,
-    paddingHorizontal: 16,
     paddingBottom: 0,
-    gap: 10,
+    gap: 0,
   },
   error: {
     color: colors.danger,
@@ -391,53 +523,54 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   card: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(8, 24, 52, 0.72)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 16,
+    borderColor: 'rgba(140, 168, 200, 0.28)',
+    borderRadius: 22,
     overflow: 'hidden',
+    marginBottom: 14,
   },
   cardPressed: {
     opacity: 0.88,
   },
   cardBody: {
-    padding: 14,
-    gap: 6,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    gap: 10,
   },
   nameRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
   },
   eventName: {
     color: colors.text,
-    fontSize: 16,
     fontWeight: '700',
     flex: 1,
   },
   hiddenBadge: {
-    backgroundColor: 'rgba(0,123,255,0.16)',
+    backgroundColor: 'rgba(6, 22, 48, 0.95)',
     borderWidth: 1,
-    borderColor: 'rgba(0,123,255,0.45)',
+    borderColor: colors.blue,
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   hiddenBadgeText: {
     color: colors.blue,
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.6,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   eventMeta: {
-    color: colors.muted,
-    fontSize: 13,
+    color: 'rgba(255,255,255,0.62)',
     flex: 1,
   },
   modalRoot: {

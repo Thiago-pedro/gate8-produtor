@@ -182,6 +182,8 @@ export async function searchRefunds(eventId: string, query: string): Promise<Ref
 }
 
 export async function executeRefund(eventId: string, hit: RefundSearchHit): Promise<RefundResult> {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
   if (hit.validated) {
     throw new Error('Ingresso já validado. Estorno não permitido.');
   }

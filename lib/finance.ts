@@ -1,3 +1,5 @@
+import * as FileSystem from 'expo-file-system/legacy';
+
 import { getAccessToken } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
@@ -71,6 +73,8 @@ export type EventFinance = {
     cancelledAmount: number;
   };
   site: FinanceChannel;
+  sitePix: FinanceChannel;
+  siteCredit: FinanceChannel;
   pos: FinanceChannel;
 };
 
@@ -687,6 +691,8 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
   );
 
   const site = emptyChannel();
+  const sitePix = emptyChannel();
+  const siteCredit = emptyChannel();
   const posChannel = emptyChannel();
   const posDetailed = fees?.posFeesDetailed;
   const brandValues = posDetailed?.brands ? Object.values(posDetailed.brands) : [];
@@ -730,6 +736,12 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
         posChannel.cashCount += purchase.ticketCount;
       }
     } else if (purchase.method === 'pix' || purchase.method === 'credit_card') {
+      const online = purchase.method === 'pix' ? sitePix : siteCredit;
+      online.count += purchase.ticketCount;
+      online.gross += purchase.financialGross;
+      online.bank += purchase.bankFee;
+      online.gate8 += purchase.serviceFee;
+      online.net += purchase.net;
       site.count += purchase.ticketCount;
       site.gross += purchase.financialGross;
       site.bank += purchase.bankFee;
@@ -743,6 +755,57 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     producerPercent,
     totals,
     site,
+    sitePix,
+    siteCredit,
     pos: posChannel,
   };
+}
+
+const FINANCE_REPORT_URL = 'https://gate8.club/api/public/app/finance/report';
+
+function reportFileName(header: string | null) {
+  const raw = header ?? '';
+  const encoded = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(raw);
+  const plain = /filename="?([^";]+)"?/i.exec(raw);
+  const picked = decodeURIComponent((encoded?.[1] || plain?.[1] || 'financeiro.pdf').trim());
+  const safe = picked.replace(/[\\/:*?"<>|]+/g, '-');
+  return safe.toLowerCase().endsWith('.pdf') ? safe : `${safe}.pdf`;
+}
+
+export async function downloadFinanceReport(eventId: string) {
+  const token = await getAccessToken();
+  if (!token) throw new Error('Entre na conta para baixar o financeiro.');
+  const directory = FileSystem.cacheDirectory;
+  if (!directory) throw new Error('Não foi possível salvar o PDF neste aparelho.');
+  const temp = `${directory}financeiro-download.pdf`;
+  const result = await FileSystem.downloadAsync(
+    `${FINANCE_REPORT_URL}?eventId=${encodeURIComponent(eventId)}`,
+    temp,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Gate8-Client': 'app',
+        Accept: 'application/pdf',
+      },
+    }
+  );
+  if (result.status !== 200) {
+    let detail = '';
+    try {
+      const body = await FileSystem.readAsStringAsync(result.uri);
+      const parsed = JSON.parse(body) as { message?: string; error?: string };
+      detail = parsed.message || parsed.error || '';
+    } catch {
+      detail = '';
+    }
+    if (result.status === 401) throw new Error(detail || 'Entre de novo para baixar o financeiro.');
+    if (result.status === 403) throw new Error(detail || 'Você não pode baixar o financeiro deste evento.');
+    if (result.status === 404) throw new Error(detail || 'Evento não encontrado.');
+    throw new Error(detail || 'Não foi possível baixar o financeiro.');
+  }
+  const disposition = result.headers['Content-Disposition'] || result.headers['content-disposition'] || null;
+  const filename = reportFileName(disposition);
+  const uri = `${directory}${filename}`;
+  if (uri !== temp) await FileSystem.copyAsync({ from: result.uri, to: uri });
+  return { uri, filename };
 }
