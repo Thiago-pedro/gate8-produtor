@@ -8,6 +8,7 @@ import { NeonCard } from '@/components/NeonCard';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useProducer } from '@/lib/producer-context';
+import { fetchSharedMenu } from '@/lib/team';
 
 const LOGIN_LOGO = require('../assets/images/logo-kit-original.png');
 const LOGIN_LOGO_ASPECT = 1009 / 165;
@@ -105,7 +106,19 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (loading || producerLoading || !user) return;
-    router.replace(status === 'producer' ? '/home' : '/convite');
+    if (status === 'producer') {
+      router.replace('/home');
+      return;
+    }
+    if (status !== 'guest') return;
+    let alive = true;
+    void fetchSharedMenu(user.id, user.email).then((menu) => {
+      if (!alive) return;
+      router.replace(menu.visible ? '/compartilhados' : '/convite');
+    });
+    return () => {
+      alive = false;
+    };
   }, [loading, producerLoading, router, status, user]);
 
   return (

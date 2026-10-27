@@ -1,26 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventArt } from '@/components/EventArt';
 import { Loader } from '@/components/Loader';
+import { NeonCard } from '@/components/NeonCard';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { formatEventDate } from '@/lib/format';
+import { useProducer } from '@/lib/producer-context';
 import { acceptTeamInvite, fetchSharedMenu, type SharedMenu } from '@/lib/team';
 
 const EMPTY: SharedMenu = { visible: false, pendingCount: 0, invites: [], events: [] };
 
 export default function SharedEventsScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const { status } = useProducer();
   const [menu, setMenu] = useState<SharedMenu>(EMPTY);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -28,14 +33,23 @@ export default function SharedEventsScreen() {
     try {
       const next = await fetchSharedMenu(user.id, user.email);
       setMenu(next);
-      if (!next.visible) router.replace('/home');
+      if (!next.visible) {
+        if (status === 'producer') router.replace('/home');
+        else if (status === 'guest') router.replace('/convite');
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Não foi possível carregar os eventos compartilhados.');
     } finally {
       setBusy(false);
       setRefreshing(false);
     }
-  }, [router, user]);
+  }, [router, status, user]);
+
+  async function leaveAccount() {
+    setLeaveOpen(false);
+    await signOut();
+    router.replace('/login');
+  }
 
   useEffect(() => {
     void load();
@@ -56,11 +70,27 @@ export default function SharedEventsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.side}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
+        {status === 'producer' ? (
+          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.side}>
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
+          </Pressable>
+        ) : (
+          <View style={styles.side} />
+        )}
         <Wordmark height={22} />
-        <View style={styles.side} />
+        {status === 'producer' ? (
+          <View style={styles.side} />
+        ) : (
+          <Pressable
+            onPress={() => setLeaveOpen(true)}
+            hitSlop={12}
+            style={styles.side}
+            accessibilityRole="button"
+            accessibilityLabel="Sair"
+          >
+            <Ionicons name="exit-outline" size={22} color={colors.text} />
+          </Pressable>
+        )}
       </View>
       <Text style={styles.title}>Evento Compartilhado</Text>
       <Text style={styles.copy}>Consulta apenas dos eventos que o dono liberou para você.</Text>
@@ -108,6 +138,28 @@ export default function SharedEventsScreen() {
           </Pressable>
         ))}
       </ScrollView>
+      <Modal visible={leaveOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setLeaveOpen(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLeaveOpen(false)} />
+          <View style={styles.modalCard}>
+            <NeonCard>
+              <Ionicons name="exit-outline" size={28} color={colors.blue} style={styles.modalIcon} />
+              <Text style={styles.modalTitle}>Sair da conta</Text>
+              <Text style={styles.modalText}>Deseja sair da sua conta?</Text>
+              <View style={styles.modalActions}>
+                <Pressable onPress={() => setLeaveOpen(false)} style={styles.modalCancel}>
+                  <Text style={styles.modalCancelText}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={() => void leaveAccount()} style={styles.modalLeaveWrap}>
+                  <LinearGradient colors={['#007BFF', '#0056b3']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.modalLeave}>
+                    <Text style={styles.modalLeaveText}>Sair</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            </NeonCard>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -148,7 +200,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   acceptText: { color: colors.loginText, fontSize: 13, fontWeight: '700' },
-  card: { borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.04)' },
+  card: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(8, 24, 52, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(140, 168, 200, 0.28)',
+  },
+  modalRoot: { flex: 1, justifyContent: 'center', paddingHorizontal: 28, backgroundColor: 'rgba(0,0,0,0.55)' },
+  modalCard: { width: '100%' },
+  modalIcon: { alignSelf: 'center', marginBottom: 10 },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  modalText: { color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 8, marginBottom: 20 },
+  modalActions: { flexDirection: 'row', gap: 10 },
+  modalCancel: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  modalCancelText: { color: colors.text, fontWeight: '600', fontSize: 15 },
+  modalLeaveWrap: { flex: 1 },
+  modalLeave: { height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  modalLeaveText: { color: colors.loginText, fontWeight: '700', fontSize: 15 },
   pressed: { opacity: 0.8 },
   cardBody: { padding: 12, gap: 4 },
   eventName: { color: colors.text, fontSize: 16, fontWeight: '700' },

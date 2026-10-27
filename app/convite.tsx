@@ -21,6 +21,7 @@ export default function ConviteScreen() {
   const { status, loading: producerLoading } = useProducer();
   const [busy, setBusy] = useState(false);
   const [declined, setDeclined] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     if (loading || producerLoading || locked) return;
@@ -34,9 +35,15 @@ export default function ConviteScreen() {
     }
     if (status !== 'guest') return;
     let alive = true;
-    void fetchSharedMenu(user.id, user.email).then((menu) => {
-      if (alive && menu.visible) router.replace('/home');
-    });
+    void fetchSharedMenu(user.id, user.email)
+      .then((menu) => {
+        if (!alive) return;
+        if (menu.visible) router.replace('/compartilhados');
+        else setChecking(false);
+      })
+      .catch(() => {
+        if (alive) setChecking(false);
+      });
     return () => {
       alive = false;
     };
@@ -68,7 +75,7 @@ export default function ConviteScreen() {
     }
   }
 
-  if (loading || producerLoading || !user || status === 'producer') {
+  if (loading || producerLoading || checking || !user || status === 'producer') {
     return (
       <View style={styles.boot}>
         <Loader screen />

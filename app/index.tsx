@@ -25,7 +25,7 @@ export default function SplashIndex() {
     let alive = true;
     void fetchSharedMenu(user.id, user.email).then((menu) => {
       if (!alive) return;
-      router.replace(menu.visible ? '/home' : '/convite');
+      router.replace(menu.visible ? '/compartilhados' : '/convite');
     });
     return () => {
       alive = false;

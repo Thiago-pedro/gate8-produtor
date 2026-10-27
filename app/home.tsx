@@ -58,24 +58,20 @@ export default function HomeScreen() {
       router.replace('/login');
       return;
     }
+    if (status === 'producer') {
+      setTeamGate('in');
+      return;
+    }
     if (status !== 'guest') return;
     let alive = true;
     void fetchSharedMenu(user.id, user.email).then((menu) => {
       if (!alive) return;
-      if (menu.visible) setTeamGate('in');
-      else {
-        setTeamGate('out');
-        router.replace('/convite');
-      }
+      router.replace(menu.visible ? '/compartilhados' : '/convite');
     });
     return () => {
       alive = false;
     };
   }, [loading, producerLoading, router, status, user]);
-
-  useEffect(() => {
-    if (status === 'producer') setTeamGate('in');
-  }, [status]);
 
   useEffect(() => {
     if (!user?.id || status !== 'producer') return;
