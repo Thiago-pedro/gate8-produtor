@@ -17,6 +17,27 @@ const SNIPPET = `subprojects { subproject ->
   }
 }
 
+def gate8NinjaGate = new Object()
+gradle.projectsEvaluated {
+  rootProject.subprojects.each { subproject ->
+    subproject.tasks.matching { it.name.toLowerCase().contains("buildcmake") }.all { task ->
+      task.doFirst {
+        synchronized (gate8NinjaGate) {
+          def sdkDir = subproject.extensions.findByName("android")?.sdkDirectory
+          if (sdkDir == null) return
+          def ninja = new File(sdkDir, "cmake/3.22.1/bin/ninja")
+          def real = new File(ninja.parentFile, "ninja.real")
+          if (!ninja.isFile() || real.exists()) return
+          ninja.renameTo(real)
+          real.setExecutable(true)
+          ninja.text = "#!/bin/sh\\nexec \\"" + real.absolutePath + "\\" -j 1 \\"$@\\"\\n"
+          ninja.setExecutable(true)
+        }
+      }
+    }
+  }
+}
+
 `;
 
 function withCmakeStl(config) {
