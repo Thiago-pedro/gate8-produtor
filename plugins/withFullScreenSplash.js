@@ -70,7 +70,7 @@ function withFullScreenSplash(config) {
 
   config = withMainActivity(config, (config) => {
     let contents = config.modResults.contents;
-    if (!contents.includes('hideSplashCut()')) {
+    if (!/^\s*hideSplashCut\(\)\s*$/m.test(contents)) {
       contents = contents.replace(
         /\/\/ @generated end expo-splashscreen\r?\n/,
         '// @generated end expo-splashscreen\n    hideSplashCut()\n'
@@ -90,32 +90,35 @@ function withFullScreenSplash(config) {
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
       window.setDecorFitsSystemWindows(false)
     }
-    val splash = android.widget.ImageView(this)
-    splash.setBackgroundColor(android.graphics.Color.BLACK)
-    splash.setImageResource(R.drawable.splash_fullscreen)
-    splash.scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-    splash.fitsSystemWindows = false
-    splash.setPadding(0, 0, 0, 0)
-    val screen = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-      windowManager.currentWindowMetrics.bounds
-    } else {
-      val point = android.graphics.Point()
-      @Suppress("DEPRECATION")
-      windowManager.defaultDisplay.getRealSize(point)
-      android.graphics.Rect(0, 0, point.x, point.y)
+    val options = android.graphics.BitmapFactory.Options()
+    options.inScaled = false
+    val bitmap = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.splash_fullscreen, options) ?: return
+    bitmap.density = android.graphics.Bitmap.DENSITY_NONE
+    val splash = object : android.view.View(this) {
+      override fun onDraw(canvas: android.graphics.Canvas) {
+        canvas.drawColor(android.graphics.Color.BLACK)
+        if (width <= 0 || height <= 0) return
+        val scaleW = width.toFloat() / bitmap.width
+        val scaleH = height.toFloat() / bitmap.height
+        val scale = if (scaleW < scaleH) scaleW else scaleH
+        val dw = bitmap.width * scale
+        val dh = bitmap.height * scale
+        val left = (width - dw) / 2f
+        val top = (height - dh) / 2f
+        canvas.drawBitmap(
+          bitmap,
+          null,
+          android.graphics.RectF(left, top, left + dw, top + dh),
+          null
+        )
+      }
     }
-    splash.layoutParams = android.widget.FrameLayout.LayoutParams(
-      screen.width(),
-      screen.height(),
-      android.view.Gravity.START or android.view.Gravity.TOP
+    splash.setBackgroundColor(android.graphics.Color.BLACK)
+    splash.layoutParams = android.view.ViewGroup.LayoutParams(
+      android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+      android.view.ViewGroup.LayoutParams.MATCH_PARENT
     )
     decor.addView(splash)
-    splash.post {
-      val location = IntArray(2)
-      decor.getLocationOnScreen(location)
-      splash.x = -location[0].toFloat()
-      splash.y = -location[1].toFloat()
-    }
     val shownAt = android.os.SystemClock.uptimeMillis()
     var leaving = false
     val removeSplash = Runnable {

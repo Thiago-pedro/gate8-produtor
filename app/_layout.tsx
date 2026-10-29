@@ -4,7 +4,7 @@ import { NavigationBar } from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Appearance, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Appearance, Dimensions, Image, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackground } from '@/components/AppBackground';
@@ -67,6 +67,10 @@ function BootSplash({ children }: { children: ReactNode }) {
   const veil = useRef(new Animated.Value(0)).current;
   const scene = useRef(new Animated.Value(expoGo ? 0 : 1)).current;
   const fading = useRef(false);
+  const windowSize = useWindowDimensions();
+  const screenSize = Dimensions.get('screen');
+  const splashWidth = Math.max(windowSize.width, screenSize.width);
+  const splashHeight = Math.max(windowSize.height, screenSize.height);
   const leaf = segments[segments.length - 1];
   const destination =
     locked ||
@@ -120,7 +124,7 @@ function BootSplash({ children }: { children: ReactNode }) {
               source={require('../assets/images/splash.png')}
               resizeMode="contain"
               fadeDuration={0}
-              style={styles.art}
+              style={{ width: splashWidth, height: splashHeight, backgroundColor: '#000000' }}
             />
             <Animated.View pointerEvents="none" style={[styles.veil, { opacity: veil }]} />
           </View>
@@ -194,13 +198,12 @@ const styles = StyleSheet.create({
   },
   opening: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
     backgroundColor: '#000000',
   },
   veil: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
-  },
-  art: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000000',
   },
