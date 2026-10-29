@@ -30,7 +30,7 @@ gradle.projectsEvaluated {
           if (!ninja.isFile() || real.exists()) return
           ninja.renameTo(real)
           real.setExecutable(true)
-          ninja.text = "#!/bin/sh\\nexec \\"" + real.absolutePath + "\\" -j 1 \\"$@\\"\\n"
+          ninja.text = "#!/bin/sh\\nexec \\"" + real.absolutePath + "\\" -j 1 \\"" + '$' + "@\\"\\n"
           ninja.setExecutable(true)
         }
       }
