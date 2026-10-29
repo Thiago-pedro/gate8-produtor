@@ -30,7 +30,17 @@ gradle.projectsEvaluated {
           if (!ninja.isFile() || real.exists()) return
           ninja.renameTo(real)
           real.setExecutable(true)
-          ninja.text = "#!/bin/sh\\nexec \\"" + real.absolutePath + "\\" -j 1 \\"" + '$' + "@\\"\\n"
+          def script = new StringBuilder()
+          script.append("#!/bin/sh")
+          script.append("\\n")
+          script.append("exec \\"")
+          script.append(real.absolutePath)
+          script.append("\\" -j 1 \\"")
+          script.append((char) 36)
+          script.append("@")
+          script.append("\\"")
+          script.append("\\n")
+          ninja.text = script.toString()
           ninja.setExecutable(true)
         }
       }
