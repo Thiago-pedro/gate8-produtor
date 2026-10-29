@@ -87,16 +87,35 @@ function withFullScreenSplash(config) {
         '\n  /**\n   * Returns the name of the main component registered from JavaScript.',
         `\n  private fun showSplashArt() {
     val decor = window.decorView as? android.view.ViewGroup ?: return
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+      window.setDecorFitsSystemWindows(false)
+    }
     val splash = android.widget.ImageView(this)
     splash.setBackgroundColor(android.graphics.Color.BLACK)
     splash.setImageResource(R.drawable.splash_fullscreen)
-    splash.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+    splash.scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
     splash.fitsSystemWindows = false
-    splash.layoutParams = android.view.ViewGroup.LayoutParams(
-      android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-      android.view.ViewGroup.LayoutParams.MATCH_PARENT
+    splash.setPadding(0, 0, 0, 0)
+    val screen = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+      windowManager.currentWindowMetrics.bounds
+    } else {
+      val point = android.graphics.Point()
+      @Suppress("DEPRECATION")
+      windowManager.defaultDisplay.getRealSize(point)
+      android.graphics.Rect(0, 0, point.x, point.y)
+    }
+    splash.layoutParams = android.widget.FrameLayout.LayoutParams(
+      screen.width(),
+      screen.height(),
+      android.view.Gravity.START or android.view.Gravity.TOP
     )
     decor.addView(splash)
+    splash.post {
+      val location = IntArray(2)
+      decor.getLocationOnScreen(location)
+      splash.x = -location[0].toFloat()
+      splash.y = -location[1].toFloat()
+    }
     val shownAt = android.os.SystemClock.uptimeMillis()
     var leaving = false
     val removeSplash = Runnable {

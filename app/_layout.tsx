@@ -118,7 +118,7 @@ function BootSplash({ children }: { children: ReactNode }) {
           <View pointerEvents="auto" style={styles.opening}>
             <Image
               source={require('../assets/images/splash.png')}
-              resizeMode="cover"
+              resizeMode="contain"
               fadeDuration={0}
               style={styles.art}
             />

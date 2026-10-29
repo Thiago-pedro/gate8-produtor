@@ -38,6 +38,7 @@
         }
       ],
       "./plugins/withFullScreenSplash.js",
+      "./plugins/withCmakeStl.js",
       "expo-secure-store",
       [
         "expo-local-authentication",
