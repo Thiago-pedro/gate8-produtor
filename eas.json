@@ -6,8 +6,12 @@
   "build": {
     "production": {
       "autoIncrement": true,
+      "env": {
+        "ORG_GRADLE_PROJECT_reactNativeArchitectures": "arm64-v8a"
+      },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "resourceClass": "large"
       }
     }
   }
