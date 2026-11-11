@@ -11,6 +11,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { colors } from '@/constants/theme';
 import { bankLabel, filterBanks, matchBank } from '@/lib/banks';
 import { useAuth } from '@/lib/auth-context';
+import { useErrorNotice } from '@/lib/error-notice';
 import { fetchSharedMenu } from '@/lib/team';
 import {
   biometricsAvailable,
@@ -118,6 +119,7 @@ export default function ContaScreen() {
   const router = useRouter();
   const { user, loading, locked } = useAuth();
   const { status, loading: producerLoading } = useProducer();
+  const { showError } = useErrorNotice();
   const [draft, setDraft] = useState<ProducerDraft | null>(null);
   const [logo, setLogo] = useState<{ uri: string; type: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -137,14 +139,20 @@ export default function ContaScreen() {
     }
     if (status !== 'guest') return;
     let alive = true;
-    void fetchSharedMenu(user.id, user.email).then((menu) => {
-      if (!alive) return;
-      router.replace(menu.visible ? '/compartilhados' : '/convite');
-    });
+    void fetchSharedMenu(user.id, user.email)
+      .then((menu) => {
+        if (!alive) return;
+        router.replace(menu.visible ? '/compartilhados' : '/convite');
+      })
+      .catch((caught) => {
+        if (!alive) return;
+        showError(caught instanceof Error ? caught.message : 'Não foi possível abrir o menu compartilhado.');
+        router.replace('/convite');
+      });
     return () => {
       alive = false;
     };
-  }, [loading, locked, producerLoading, router, status, user]);
+  }, [loading, locked, producerLoading, router, showError, status, user]);
 
   useEffect(() => {
     if (!user || status !== 'producer') return;

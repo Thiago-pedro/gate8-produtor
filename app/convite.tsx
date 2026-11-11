@@ -10,6 +10,7 @@ import { NeonCard } from '@/components/NeonCard';
 import { Loader } from '@/components/Loader';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { useErrorNotice } from '@/lib/error-notice';
 import { useProducer } from '@/lib/producer-context';
 import { fetchSharedMenu } from '@/lib/team';
 
@@ -19,6 +20,7 @@ export default function ConviteScreen() {
   const router = useRouter();
   const { user, loading, locked, signOut } = useAuth();
   const { status, loading: producerLoading } = useProducer();
+  const { showError } = useErrorNotice();
   const [busy, setBusy] = useState(false);
   const [declined, setDeclined] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -41,13 +43,15 @@ export default function ConviteScreen() {
         if (menu.visible) router.replace('/compartilhados');
         else setChecking(false);
       })
-      .catch(() => {
-        if (alive) setChecking(false);
+      .catch((caught) => {
+        if (!alive) return;
+        showError(caught instanceof Error ? caught.message : 'Não foi possível verificar o convite compartilhado.');
+        setChecking(false);
       });
     return () => {
       alive = false;
     };
-  }, [loading, locked, producerLoading, router, status, user]);
+  }, [loading, locked, producerLoading, router, showError, status, user]);
 
   async function leave() {
     setBusy(true);

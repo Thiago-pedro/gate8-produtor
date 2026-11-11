@@ -1,6 +1,7 @@
 import { getAccessToken } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
-import { callServerFn } from '@/lib/server-fn';
+import { callOwnerServerFn, callServerFn } from '@/lib/server-fn';
+import { assertEventPermission } from '@/lib/team';
 
 const FN_SEARCH = '9db7df87d976a57b56af85e0ed68ddaa0f337c840d18877aa75248eaf9109d0b';
 const FN_REFUND = 'ae303747eb272924bb611cd1a75a661062c18c09043383dfaa6f77a8fa804ed9';
@@ -177,13 +178,12 @@ async function withValidated(eventId: string, hits: RefundSearchHit[]) {
 }
 
 export async function searchRefunds(eventId: string, query: string): Promise<RefundSearchHit[]> {
+  await assertEventPermission(eventId, 'estornos');
   const raw = await callServerFn<unknown>(FN_SEARCH, { event_id: eventId, query: query.trim() });
   return withValidated(eventId, pickResults(raw).map(mapHit));
 }
 
 export async function executeRefund(eventId: string, hit: RefundSearchHit): Promise<RefundResult> {
-  const { assertEventOwner } = await import('@/lib/team');
-  await assertEventOwner(eventId);
   if (hit.validated) {
     throw new Error('Ingresso já validado. Estorno não permitido.');
   }
@@ -191,7 +191,7 @@ export async function executeRefund(eventId: string, hit: RefundSearchHit): Prom
     hit.kind === 'purchase' && hit.purchaseId
       ? { event_id: eventId, purchase_id: hit.purchaseId }
       : { event_id: eventId, ticket_ids: hit.ticketIds };
-  const raw = asObject(await callServerFn<unknown>(FN_REFUND, payload)) ?? {};
+  const raw = asObject(await callOwnerServerFn<unknown>(eventId, FN_REFUND, payload)) ?? {};
   const nested = asObject(raw.data) ?? raw;
   const refund = asObject(nested.refund) ?? {};
   const cancelled = num(nested.cancelled);
@@ -209,6 +209,7 @@ export async function executeRefund(eventId: string, hit: RefundSearchHit): Prom
 }
 
 export async function fetchRefundReport(eventId: string): Promise<RefundReport> {
+  await assertEventPermission(eventId, 'estornos');
   const raw = await callServerFn<Row>(FN_LOGS, { event_id: eventId });
   const rows = Array.isArray(raw.refunds) ? (raw.refunds as Row[]) : [];
   const refunds = rows.map((row) => ({

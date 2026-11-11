@@ -624,6 +624,7 @@ export async function createTicketBatch(input: {
 export async function updateTicketBatch(
   batchId: string,
   input: {
+    eventId: string;
     sector: string;
     label: string;
     gender: BatchGender;

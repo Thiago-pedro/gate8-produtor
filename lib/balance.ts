@@ -945,6 +945,8 @@ async function mergeBoletoTimeline(eventId: string, balance: BalanceResponse): P
 }
 
 export async function fetchEventBalance(eventId: string): Promise<BalanceResponse> {
+  const { assertEventPermission } = await import('@/lib/team');
+  await assertEventPermission(eventId, 'balanco');
   const official = await fetchOfficialEndpoint(eventId);
   const salesBroken =
     !!official &&

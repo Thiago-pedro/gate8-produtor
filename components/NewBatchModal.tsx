@@ -191,7 +191,7 @@ export function NewBatchModal({
     };
     try {
       if (batch) {
-        await updateTicketBatch(batch.id, fields);
+        await updateTicketBatch(batch.id, { eventId, ...fields });
       } else {
         await createTicketBatch({ eventId, ...fields });
       }

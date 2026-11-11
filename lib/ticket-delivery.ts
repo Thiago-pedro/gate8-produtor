@@ -1,6 +1,7 @@
 import { getAccessToken } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
 import { callServerFn } from '@/lib/server-fn';
+import { assertEventPermission } from '@/lib/team';
 
 const FN_SEND = 'd3e29e39ddd409da0af9c8b4b2ffa11ed7ae230f1db063a7f3359246e6b4ba1a';
 const FN_ARCHIVE = 'a63cd80b9f294dab152ea85b18cf5a675b0f635136cb63e584f4f7583c27ef51';
@@ -209,6 +210,7 @@ function transferAccepted(row: Row) {
 }
 
 export async function fetchTicketTransfers(eventId: string): Promise<TicketTransfer[]> {
+  await assertEventPermission(eventId, 'transferencias');
   const raw = await callServerFn<unknown>(FN_TRANSFERS, { eventId });
   const root = raw && typeof raw === 'object' ? (raw as Row) : {};
   const nested = root.data && typeof root.data === 'object' ? (root.data as Row) : root;

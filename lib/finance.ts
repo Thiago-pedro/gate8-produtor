@@ -57,6 +57,14 @@ export type FinanceChannel = {
   cashCount: number;
 };
 
+export type FinancePackageStats = {
+  packagesSold: number;
+  packageTickets: number;
+  extraTickets: number;
+  total: number;
+  clients: number;
+};
+
 export type EventFinance = {
   producerMode: boolean;
   producerPercent: number;
@@ -72,6 +80,10 @@ export type EventFinance = {
     cancelledTickets: number;
     cancelledAmount: number;
   };
+  packages: FinancePackageStats;
+  withdrawnPaid: number;
+  withdrawnPending: number;
+  withdrawnTotal: number;
   site: FinanceChannel;
   sitePix: FinanceChannel;
   siteCredit: FinanceChannel;
@@ -360,6 +372,79 @@ async function fetchTables(eventId: string) {
   ]);
 }
 
+async function fetchBatchPackageMeta(eventId: string) {
+  const id = encodeURIComponent(eventId);
+  return firstRest([
+    `ticket_batches?select=id,tickets_per_purchase,complimentary_per_purchase&event_id=eq.${id}`,
+    `ticket_batches?select=id&event_id=eq.${id}`,
+  ]);
+}
+
+async function fetchWithdrawalRows(eventId: string) {
+  const id = encodeURIComponent(eventId);
+  try {
+    return asRows(
+      await rest(
+        `withdrawal_requests?select=status,amount_net&event_id=eq.${id}`
+      )
+    );
+  } catch {
+    return [] as Row[];
+  }
+}
+
+/** Mesma regra do site (Pacote 5+1 / Extra). */
+export function computePackageStats(
+  tickets: Row[],
+  batches: Row[],
+  batchIdFilter = ''
+): FinancePackageStats {
+  const byBatch = new Map<string, { all: number; stored: number }>();
+  const clients = new Set<string>();
+  for (const ticket of tickets) {
+    if (isCancelledStatus(ticket.status)) continue;
+    const batchId = text(ticket.batch_id);
+    if (batchIdFilter && batchId !== batchIdFilter) continue;
+    const bucket = byBatch.get(batchId) ?? { all: 0, stored: 0 };
+    bucket.all += 1;
+    if (!ticket.payment_method) bucket.stored += 1;
+    byBatch.set(batchId, bucket);
+    const client =
+      text(ticket.created_by) ||
+      text(ticket.holder_name).trim().toLowerCase() ||
+      text(ticket.id);
+    if (client) clients.add(client);
+  }
+
+  const out: FinancePackageStats = {
+    packagesSold: 0,
+    packageTickets: 0,
+    extraTickets: 0,
+    total: 0,
+    clients: clients.size,
+  };
+
+  for (const [batchId, counts] of byBatch) {
+    const batch = batches.find((row) => text(row.id) === batchId);
+    const perPurchase = Math.max(1, num(batch?.tickets_per_purchase) || 1);
+    const complimentary = Math.max(0, num(batch?.complimentary_per_purchase));
+    out.total += counts.all;
+    if (complimentary > 0 && perPurchase > complimentary) {
+      out.packageTickets += counts.all;
+      out.packagesSold += Math.ceil(counts.all / perPurchase);
+    } else {
+      out.extraTickets += counts.all;
+    }
+  }
+  return out;
+}
+
+export function bankNetOnSite(siteNet: number, boletoNet: number, withdrawnTotal: number) {
+  const combined = (Math.round(siteNet * 100) + Math.round(boletoNet * 100)) / 100;
+  const withdrawn = Number.isFinite(withdrawnTotal) ? withdrawnTotal : 0;
+  return Math.max(0, money(combined - money(withdrawn)));
+}
+
 async function fetchPosIds(eventId: string) {
   const id = encodeURIComponent(eventId);
   const rows = await firstRest([
@@ -462,13 +547,27 @@ function groupKey(ticket: Row, purchase: Row | null) {
 }
 
 export async function fetchEventFinance(eventId: string): Promise<EventFinance> {
-  const [tickets, tableRows, pos, fees, coupons] = await Promise.all([
+  const { assertEventPermission } = await import('@/lib/team');
+  await assertEventPermission(eventId, 'financeiro');
+  const [tickets, tableRows, pos, fees, coupons, batches, withdrawals] = await Promise.all([
     fetchTickets(eventId),
     fetchTables(eventId),
     fetchPosIds(eventId),
     fetchFees(eventId),
     fetchCoupons(eventId),
+    fetchBatchPackageMeta(eventId),
+    fetchWithdrawalRows(eventId),
   ]);
+  const packages = computePackageStats(tickets, batches);
+  let withdrawnPaid = 0;
+  let withdrawnPending = 0;
+  for (const row of withdrawals) {
+    const amount = num(row.amount_net);
+    const status = text(row.status).toLowerCase();
+    if (status === 'paid') withdrawnPaid += amount;
+    else if (status !== 'rejected') withdrawnPending += amount;
+  }
+  const withdrawnTotal = money(withdrawnPaid + withdrawnPending);
 
   const tables = new Map(tableRows.map((row) => [text(row.id), row]));
   const detailed = fees?.siteFeesDetailed;
@@ -754,6 +853,10 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     producerMode,
     producerPercent,
     totals,
+    packages,
+    withdrawnPaid: money(withdrawnPaid),
+    withdrawnPending: money(withdrawnPending),
+    withdrawnTotal,
     site,
     sitePix,
     siteCredit,
@@ -773,6 +876,8 @@ function reportFileName(header: string | null) {
 }
 
 export async function downloadFinanceReport(eventId: string) {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
   const token = await getAccessToken();
   if (!token) throw new Error('Entre na conta para baixar o financeiro.');
   const directory = FileSystem.cacheDirectory;

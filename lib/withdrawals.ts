@@ -129,6 +129,8 @@ export function withdrawalStatusLabel(status: string) {
 }
 
 export async function fetchWithdrawalSummary(eventId: string): Promise<WithdrawalSummary> {
+  const { assertEventPermission } = await import('@/lib/team');
+  await assertEventPermission(eventId, 'retirada');
   const encoded = encodeURIComponent(eventId);
   const [eventRows, requestRows, summaryRaw, finance, boletos] = await Promise.all([
     rest<Row[]>(`events?select=created_by&id=eq.${encoded}`),

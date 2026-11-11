@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BalancoSection } from '@/components/BalancoSection';
@@ -38,6 +38,7 @@ import {
   type ProducerEventDetail,
 } from '@/lib/events';
 import {
+  bankNetOnSite,
   downloadFinanceReport,
   fetchEventFinance,
   type EventFinance,
@@ -280,8 +281,15 @@ export default function EventoScreen() {
   const [artRatio, setArtRatio] = useState(16 / 9);
   const { width: screenWidth } = useWindowDimensions();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const artOpacity = useRef(new Animated.Value(1)).current;
+  const artFaded = useRef(false);
   const bannerUrl = detail?.event.banner_url ?? null;
   const coverH = Math.max(1, Math.round(screenWidth / artRatio));
+
+  useEffect(() => {
+    artFaded.current = false;
+    artOpacity.setValue(1);
+  }, [id, artOpacity]);
 
   async function copyText(value: string, message: string) {
     await Clipboard.setStringAsync(value);
@@ -590,6 +598,12 @@ export default function EventoScreen() {
       </View>
 
       <View style={styles.stage}>
+      {event.banner_url ? (
+        <Animated.View style={[styles.hero, { opacity: artOpacity }]} pointerEvents="none">
+          <ArtGlow height={coverH} />
+          <EventArt uri={event.banner_url} ended={ended} height={coverH} fit="contain" />
+        </Animated.View>
+      ) : null}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
@@ -598,6 +612,18 @@ export default function EventoScreen() {
           (section === 'financeiro' || section === 'boletos') && !finance && styles.contentFill,
         ]}
         keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={(scroll) => {
+          if (!event.banner_url) return;
+          const faded = scroll.nativeEvent.contentOffset.y > 0;
+          if (faded === artFaded.current) return;
+          artFaded.current = faded;
+          Animated.timing(artOpacity, {
+            toValue: faded ? 0.15 : 1,
+            duration: 180,
+            useNativeDriver: true,
+          }).start();
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -976,6 +1002,16 @@ export default function EventoScreen() {
               <Text style={styles.empty}>{financeError}</Text>
             ) : finance ? (
               <>
+                <View style={styles.kpiGrid}>
+                  <Kpi
+                    label="Pacote 5 + 1"
+                    value={String(finance.packages.packagesSold)}
+                    hint={`${finance.packages.packageTickets} ingressos`}
+                  />
+                  <Kpi label="Extra" value={String(finance.packages.extraTickets)} />
+                  <Kpi label="Total de ingressos" value={String(finance.packages.total)} tone="net" />
+                  <Kpi label="Clientes" value={String(finance.packages.clients)} />
+                </View>
                 <ChannelCard
                   title="PIX"
                   accent={colors.success}
@@ -1033,10 +1069,27 @@ export default function EventoScreen() {
                   <Kpi
                     label="Taxas"
                     value={formatBRL(finance.totals.serviceFee + finance.totals.bankFee + boletoFees)}
+                    hint={`Banco ${formatBRL(finance.totals.bankFee)} · Gate8 ${formatBRL(
+                      finance.totals.serviceFee + boletoFees
+                    )}`}
                   />
                   <Kpi
                     label="Valor líquido do evento"
                     value={formatBRL(finance.totals.net + boletoNet)}
+                    tone="net"
+                  />
+                  <Kpi
+                    label="Total líquido retirado"
+                    value={formatBRL(finance.withdrawnPaid)}
+                    hint={
+                      finance.withdrawnPending > 0
+                        ? `${formatBRL(finance.withdrawnPending)} em retirada pendente`
+                        : undefined
+                    }
+                  />
+                  <Kpi
+                    label="Líquido no banco (Site)"
+                    value={formatBRL(bankNetOnSite(finance.site.net, boletoNet, finance.withdrawnTotal))}
                     tone="net"
                   />
                 </View>
@@ -1067,7 +1120,19 @@ export default function EventoScreen() {
         ) : null}
 
         {section === 'boletos' ? (
-          <BoletosSection report={boletos} busy={financeBusy} error={boletosError} />
+          <BoletosSection
+            eventId={event.id}
+            canWrite={canWrite}
+            report={boletos}
+            busy={financeBusy}
+            error={boletosError}
+            onToast={(message) => {
+              if (toastTimer.current) clearTimeout(toastTimer.current);
+              setToast(message);
+              toastTimer.current = setTimeout(() => setToast(null), 2800);
+            }}
+            onChanged={() => void loadFinance(true)}
+          />
         ) : null}
 
         {section === 'retiradas' ? (
@@ -1114,12 +1179,6 @@ export default function EventoScreen() {
 
         <SiteFooter />
       </ScrollView>
-      {event.banner_url ? (
-        <View style={styles.hero} pointerEvents="none">
-          <ArtGlow height={coverH} />
-          <EventArt uri={event.banner_url} ended={ended} height={coverH} fit="contain" />
-        </View>
-      ) : null}
       </View>
       {toast ? (
         <View pointerEvents="none" style={styles.toastWrap}>
@@ -1225,6 +1284,8 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+    zIndex: 1,
+    backgroundColor: 'transparent',
   },
   contentFill: {
     flexGrow: 1,
@@ -1234,8 +1295,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 2,
-    elevation: 4,
+    zIndex: 0,
     overflow: 'visible',
     backgroundColor: 'transparent',
   },

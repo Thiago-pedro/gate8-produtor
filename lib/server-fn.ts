@@ -177,3 +177,15 @@ export async function callServerFn<T>(
     return performServerFn(id, data, options, token);
   }
 }
+
+/** Escrita sensível: confirma created_by no Supabase antes de chamar a função do site. */
+export async function callOwnerServerFn<T>(
+  eventId: string,
+  id: string,
+  data: unknown,
+  options?: { method?: 'GET' | 'POST'; auth?: boolean }
+): Promise<T> {
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
+  return callServerFn<T>(id, data, options);
+}

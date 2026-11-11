@@ -163,6 +163,8 @@ function pickCustomers(raw: unknown): Gate8Customer[] {
 export async function searchGate8Customers(eventId: string, query: string): Promise<Gate8Customer[]> {
   const q = query.trim();
   if (q.length < 2) return [];
+  const { assertEventOwner } = await import('@/lib/team');
+  await assertEventOwner(eventId);
   const raw = await callServerFn<unknown>(FN_SEARCH, { eventId, query: q });
   return pickCustomers(raw);
 }

@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { getAccessToken, getAuthUser } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
-import { callServerFn } from '@/lib/server-fn';
+import { callOwnerServerFn, callServerFn } from '@/lib/server-fn';
 
 const FN_GEOCODE = '7fb9a2c7e0a24d1b39ca13457d14bb01e800984c02d343d0954ee49b3e601d05';
 const FN_COUPON_GET = 'b5933bffccecce0a407e0c1fb7880919c031dc442e64bb7555a2cb8c0a94a953';
@@ -249,6 +249,8 @@ function discountValueOf(coupon: EventCouponDraft) {
 }
 
 export async function fetchEventCoupon(eventId: string): Promise<EventCoupon | null> {
+  const { assertEventPermission } = await import('@/lib/team');
+  await assertEventPermission(eventId, 'cupons');
   const raw = asObject(await callServerFn<unknown>(FN_COUPON_GET, { event_id: eventId }));
   const body = asObject(raw?.data) ?? raw;
   const coupon = asObject(body?.coupon);
@@ -262,10 +264,8 @@ export async function fetchEventCoupon(eventId: string): Promise<EventCoupon | n
 }
 
 export async function saveEventCoupon(eventId: string, coupon: EventCouponDraft) {
-  const { assertEventOwner } = await import('@/lib/team');
-  await assertEventOwner(eventId);
   if (!coupon.active) return;
-  await callServerFn(FN_COUPON, {
+  await callOwnerServerFn(eventId, FN_COUPON, {
     event_id: eventId,
     code: coupon.code.trim(),
     discount_type: serverDiscountType(coupon.discountType),
@@ -275,13 +275,11 @@ export async function saveEventCoupon(eventId: string, coupon: EventCouponDraft)
 }
 
 export async function saveManagedCoupon(eventId: string, coupon: EventCouponDraft) {
-  const { assertEventOwner } = await import('@/lib/team');
-  await assertEventOwner(eventId);
   if (!coupon.active && !coupon.code.trim()) {
-    await callServerFn(FN_COUPON_CLEAR, { event_id: eventId });
+    await callOwnerServerFn(eventId, FN_COUPON_CLEAR, { event_id: eventId });
     return;
   }
-  await callServerFn(FN_COUPON, {
+  await callOwnerServerFn(eventId, FN_COUPON, {
     event_id: eventId,
     code: coupon.code.trim(),
     discount_type: serverDiscountType(coupon.discountType),

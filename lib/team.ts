@@ -125,6 +125,28 @@ export async function assertEventOwner(eventId: string) {
   }
 }
 
+/** Dono sempre passa; convidado só se team_member_can liberar a permissão. */
+export async function assertEventPermission(eventId: string, permission: TeamPermission) {
+  const user = await getAuthUser();
+  if (!user?.id) throw new Error('Entre na conta para continuar.');
+  const rows = await rest<Row[]>(
+    `events?select=created_by&id=eq.${encodeURIComponent(eventId)}&limit=1`
+  );
+  const ownerId = Array.isArray(rows) ? text(rows[0] ?? null, 'created_by') : '';
+  if (ownerId && ownerId === user.id) return;
+  try {
+    const allowed = await rpc<boolean>('team_member_can', {
+      _event_id: eventId,
+      _user_id: user.id,
+      _permission: permission,
+    });
+    if (allowed === true) return;
+  } catch {
+    // cai no erro abaixo
+  }
+  throw new Error('Você não tem permissão para acessar estas informações.');
+}
+
 export async function fetchUserProfile(userId: string) {
   try {
     const rows = await rest<Row[]>(

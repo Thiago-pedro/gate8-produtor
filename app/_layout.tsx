@@ -5,12 +5,13 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Appearance, Dimensions, Image, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackground } from '@/components/AppBackground';
 import { BiometricGate } from '@/components/BiometricGate';
 import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth-context';
+import { ErrorNoticeProvider } from '@/lib/error-notice';
 import { ProducerProvider, useProducer } from '@/lib/producer-context';
 
 SplashScreen.preventAutoHideAsync();
@@ -34,13 +35,13 @@ export const unstable_settings = {
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
     <AppBackground>
-      <View style={styles.errorScreen}>
+      <SafeAreaView style={styles.errorScreen} edges={['top', 'bottom']}>
         <Text style={styles.errorTitle}>Erro ao abrir o painel</Text>
         <Text style={styles.errorText}>{error.message}</Text>
         <Pressable onPress={retry} style={styles.retry}>
           <Text style={styles.retryText}>Tentar de novo</Text>
         </Pressable>
-      </View>
+      </SafeAreaView>
     </AppBackground>
   );
 }
@@ -77,7 +78,9 @@ function BootSplash({ children }: { children: ReactNode }) {
     leaf === 'login' ||
     leaf === 'home' ||
     leaf === 'convite' ||
-    leaf === 'cadastro-produtor';
+    leaf === 'cadastro-produtor' ||
+    leaf === 'compartilhados' ||
+    leaf === 'conta';
 
   useEffect(() => {
     hideNativeSplash();
@@ -99,13 +102,14 @@ function BootSplash({ children }: { children: ReactNode }) {
     }).start(({ finished }) => {
       if (!finished) return;
       setCover(false);
-      Animated.timing(scene, {
-        toValue: 1,
-        duration: 720,
-        useNativeDriver: true,
-      }).start();
+      scene.setValue(1);
     });
   }, [phase, scene, veil]);
+
+  useEffect(() => {
+    if (expoGo || !held) return;
+    scene.setValue(1);
+  }, [held, scene]);
 
   return (
     <View style={styles.app}>
@@ -142,34 +146,36 @@ export default function RootLayout() {
     <ThemeProvider value={navTheme}>
       <AuthProvider>
         <ProducerProvider>
-          <View style={styles.appRoot}>
-            <StatusBar style="light" />
-            {Platform.OS === 'android' ? <NavigationBar style="light" /> : null}
-            <BootSplash>
-              <Stack
-                initialRouteName="index"
-                screenLayout={({ children }) => <AppBackground>{children}</AppBackground>}
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: '#000000' },
-                }}
-              >
-                <Stack.Screen name="index" options={{ animation: 'none' }} />
-                <Stack.Screen name="login" options={{ animation: 'none' }} />
-                <Stack.Screen name="cadastro" options={{ animation: 'none' }} />
-                <Stack.Screen name="convite" options={{ animation: 'none' }} />
-                <Stack.Screen name="cadastro-produtor" />
-                <Stack.Screen name="home" options={{ animation: 'none' }} />
-                <Stack.Screen name="compartilhados" />
-                <Stack.Screen name="conta" />
-                <Stack.Screen name="evento/novo" />
-                <Stack.Screen name="evento/[id]" />
-              </Stack>
-            </BootSplash>
-            {Platform.OS === 'android' && insets.bottom > 0 ? (
-              <View pointerEvents="none" style={[styles.navScrim, { height: insets.bottom }]} />
-            ) : null}
-          </View>
+          <ErrorNoticeProvider>
+            <View style={styles.appRoot}>
+              <StatusBar style="light" />
+              {Platform.OS === 'android' ? <NavigationBar style="light" /> : null}
+              <BootSplash>
+                <Stack
+                  initialRouteName="index"
+                  screenLayout={({ children }) => <AppBackground>{children}</AppBackground>}
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: '#000000' },
+                  }}
+                >
+                  <Stack.Screen name="index" options={{ animation: 'none' }} />
+                  <Stack.Screen name="login" options={{ animation: 'none' }} />
+                  <Stack.Screen name="cadastro" options={{ animation: 'none' }} />
+                  <Stack.Screen name="convite" options={{ animation: 'none' }} />
+                  <Stack.Screen name="cadastro-produtor" />
+                  <Stack.Screen name="home" options={{ animation: 'none' }} />
+                  <Stack.Screen name="compartilhados" />
+                  <Stack.Screen name="conta" />
+                  <Stack.Screen name="evento/novo" />
+                  <Stack.Screen name="evento/[id]" />
+                </Stack>
+              </BootSplash>
+              {Platform.OS === 'android' && insets.bottom > 0 ? (
+                <View pointerEvents="none" style={[styles.navScrim, { height: insets.bottom }]} />
+              ) : null}
+            </View>
+          </ErrorNoticeProvider>
         </ProducerProvider>
       </AuthProvider>
     </ThemeProvider>

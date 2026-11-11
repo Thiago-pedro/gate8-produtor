@@ -12,6 +12,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
+import { useErrorNotice } from '@/lib/error-notice';
 import { fetchProducerEvents, isOpenEvent, type ProducerEvent } from '@/lib/events';
 import { formatEventDate } from '@/lib/format';
 import { fetchProducerFirstName } from '@/lib/producer';
@@ -35,9 +36,9 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const { user, loading, signOut } = useAuth();
   const { status, loading: producerLoading } = useProducer();
+  const { showError } = useErrorNotice();
   const [events, setEvents] = useState<ProducerEvent[]>([]);
   const [shared, setShared] = useState<SharedMenu | null>(null);
-  const [teamGate, setTeamGate] = useState<'unknown' | 'in' | 'out'>('unknown');
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -45,6 +46,7 @@ export default function HomeScreen() {
   const [filter, setFilter] = useState<EventFilter>('active');
   const [producerName, setProducerName] = useState('');
   const sawList = useRef(false);
+  const onHome = status === 'producer';
 
   async function leaveAccount() {
     setLeaveOpen(false);
@@ -58,27 +60,34 @@ export default function HomeScreen() {
       router.replace('/login');
       return;
     }
-    if (status === 'producer') {
-      setTeamGate('in');
-      return;
-    }
+    if (status === 'producer') return;
     if (status !== 'guest') return;
     let alive = true;
-    void fetchSharedMenu(user.id, user.email).then((menu) => {
-      if (!alive) return;
-      router.replace(menu.visible ? '/compartilhados' : '/convite');
-    });
+    void fetchSharedMenu(user.id, user.email)
+      .then((menu) => {
+        if (!alive) return;
+        router.replace(menu.visible ? '/compartilhados' : '/convite');
+      })
+      .catch((caught) => {
+        if (!alive) return;
+        showError(caught instanceof Error ? caught.message : 'Não foi possível abrir o menu compartilhado.');
+        router.replace('/convite');
+      });
     return () => {
       alive = false;
     };
-  }, [loading, producerLoading, router, status, user]);
+  }, [loading, producerLoading, router, showError, status, user]);
 
   useEffect(() => {
     if (!user?.id || status !== 'producer') return;
     let alive = true;
-    void fetchProducerFirstName(user.id).then((name) => {
-      if (alive) setProducerName(name);
-    });
+    void fetchProducerFirstName(user.id)
+      .then((name) => {
+        if (alive) setProducerName(name);
+      })
+      .catch(() => {
+        // O nome é só um detalhe da home; se falhar, a tela segue sem ele.
+      });
     return () => {
       alive = false;
     };
@@ -101,20 +110,24 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (user && teamGate === 'in') {
+      if (user && onHome) {
         void load(sawList.current);
         sawList.current = true;
       }
-    }, [load, teamGate, user])
+    }, [load, onHome, user])
   );
 
   useEffect(() => {
-    if (!user || teamGate !== 'in') return;
+    if (!user || !onHome) return;
     let alive = true;
     const tick = () => {
-      void fetchSharedMenu(user.id, user.email).then((menu) => {
-        if (alive) setShared(menu);
-      });
+      void fetchSharedMenu(user.id, user.email)
+        .then((menu) => {
+          if (alive) setShared(menu);
+        })
+        .catch(() => {
+          // Mantém o último menu se a atualização periódica falhar.
+        });
     };
     tick();
     const timer = setInterval(tick, 15000);
@@ -122,7 +135,7 @@ export default function HomeScreen() {
       alive = false;
       clearInterval(timer);
     };
-  }, [teamGate, user]);
+  }, [onHome, user]);
 
   const visible = useMemo(() => {
     if (filter === 'active') return events.filter(isOpenEvent);
@@ -155,10 +168,11 @@ export default function HomeScreen() {
   const eventMetaSize = Math.min(15, Math.max(13, Math.round(width * 0.033)));
   const helloName = producerName || user?.name?.split(' ')[0] || '';
 
-  if (loading || producerLoading || !user || teamGate !== 'in') {
+  if (loading || producerLoading || !user || !onHome) {
     return (
       <View style={styles.boot}>
         <Loader screen />
+        <Text style={styles.bootText}>Abrindo sua conta…</Text>
       </View>
     );
   }
@@ -355,6 +369,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 12,
+  },
+  bootText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
   },
   top: {
     alignItems: 'center',
