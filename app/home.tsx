@@ -6,6 +6,7 @@ import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWind
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventArt } from '@/components/EventArt';
+import { HomeBirth } from '@/components/HomeBirth';
 import { NeonCard } from '@/components/NeonCard';
 import { Loader } from '@/components/Loader';
 import { SiteFooter } from '@/components/SiteFooter';
@@ -170,14 +171,18 @@ export default function HomeScreen() {
 
   if (loading || producerLoading || !user || !onHome) {
     return (
-      <View style={styles.boot}>
-        <Loader screen />
-        <Text style={styles.bootText}>Abrindo sua conta…</Text>
+      <View style={styles.screen}>
+        <View style={styles.boot}>
+          <Loader screen />
+          <Text style={styles.bootText}>Abrindo sua conta…</Text>
+        </View>
+        <HomeBirth />
       </View>
     );
   }
 
   return (
+    <View style={styles.screen}>
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.top}>
         <Wordmark height={logoHeight} />
@@ -356,10 +361,15 @@ export default function HomeScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+    <HomeBirth />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   safe: {
     flex: 1,
     backgroundColor: 'transparent',

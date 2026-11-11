@@ -1,12 +1,17 @@
 ---
-description: O app tem um único splash no Android
+description: O app tem um único splash com a mesma transição do app cliente
 alwaysApply: true
 ---
 
 # Um splash só
 
-No APK do Gate8 Manager existe um único splash: a arte nativa inteira, centralizada com `FIT_CENTER`, por 2,5 segundos, e em seguida a próxima tela. A imagem cabe na tela e não pode ser cortada nem sair para nenhum lado. O fundo que sobra fica preto.
+O Gate8 Manager usa o mesmo fluxo do app cliente:
 
-Não desenhe um segundo splash em JavaScript no Android. `app/index.tsx` fica só com o fundo preto. O modal com a imagem do splash vale apenas no Expo Go, onde não existe a imagem nativa, e usa `resizeMode="contain"`.
+1. `app/index.tsx` mostra a arte do splash com `resizeMode="contain"` (cabe inteira, fundo preto).
+2. Depois de ~1,6s a tela escurece (~280ms).
+3. Só então navega para login/home.
+4. A tela destino usa `HomeBirth` (véu preto sumindo ~300ms).
 
 Não estique a arte (`gravity="fill"`, `CENTER_CROP` ou `resizeMode="stretch"` / `cover`).
+Não coloque um `ImageView` nativo por cima do React — isso esconde a transição.
+No Android, a janela nativa fica preta; a arte vive no JS do `index`.

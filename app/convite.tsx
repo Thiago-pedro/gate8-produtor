@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthScreenShell } from '@/components/AuthScreenShell';
+import { HomeBirth } from '@/components/HomeBirth';
 import { Logo } from '@/components/Logo';
 import { NeonCard } from '@/components/NeonCard';
 import { Loader } from '@/components/Loader';
@@ -83,11 +84,13 @@ export default function ConviteScreen() {
     return (
       <View style={styles.boot}>
         <Loader screen />
+        <HomeBirth />
       </View>
     );
   }
 
   return (
+    <View style={styles.screen}>
     <AuthScreenShell>
       <View style={styles.logoWrap}>
         <Logo height={56} centered />
@@ -141,10 +144,15 @@ export default function ConviteScreen() {
         )}
       </NeonCard>
     </AuthScreenShell>
+    <HomeBirth />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   boot: {
     flex: 1,
     backgroundColor: 'transparent',

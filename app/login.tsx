@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AuthScreenShell, useAuthKeyboard } from '@/components/AuthScreenShell';
+import { HomeBirth } from '@/components/HomeBirth';
 import { NeonCard } from '@/components/NeonCard';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
@@ -131,13 +132,19 @@ export default function LoginScreen() {
   }, [loading, producerLoading, router, showError, status, user]);
 
   return (
-    <AuthScreenShell>
-      <LoginForm />
-    </AuthScreenShell>
+    <View style={styles.screen}>
+      <AuthScreenShell>
+        <LoginForm />
+      </AuthScreenShell>
+      <HomeBirth />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   logoWrap: {
     alignItems: 'center',
     marginTop: -11,

@@ -6,6 +6,7 @@ import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventArt } from '@/components/EventArt';
+import { HomeBirth } from '@/components/HomeBirth';
 import { Loader } from '@/components/Loader';
 import { NeonCard } from '@/components/NeonCard';
 import { Wordmark } from '@/components/Wordmark';
@@ -68,6 +69,7 @@ export default function SharedEventsScreen() {
   }
 
   return (
+    <View style={styles.screen}>
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         {status === 'producer' ? (
@@ -161,10 +163,13 @@ export default function SharedEventsScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+    <HomeBirth />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   safe: { flex: 1, backgroundColor: 'transparent' },
   header: {
     height: 44,
