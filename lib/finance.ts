@@ -75,6 +75,7 @@ export type EventFinance = {
     net: number;
     paid: number;
     courtesy: number;
+    salesCount: number;
     couponDiscount: number;
     couponCount: number;
     cancelledTickets: number;
@@ -760,7 +761,10 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       acc.serviceFee += purchase.serviceFee;
       acc.bankFee += purchase.bankFee;
       acc.net += purchase.net;
-      if (!purchase.isCourtesy && !purchase.isCancelled) acc.paid += purchase.ticketCount;
+      if (!purchase.isCourtesy && !purchase.isCancelled) {
+        acc.paid += purchase.ticketCount;
+        acc.salesCount += 1;
+      }
       if (purchase.isCourtesy) acc.courtesy += purchase.ticketCount;
       if (purchase.hasCoupon && !purchase.isCancelled) {
         acc.couponDiscount += purchase.couponDiscount;
@@ -782,6 +786,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       net: 0,
       paid: 0,
       courtesy: 0,
+      salesCount: 0,
       couponDiscount: 0,
       couponCount: 0,
       cancelledTickets: 0,

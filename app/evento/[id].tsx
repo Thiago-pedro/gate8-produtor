@@ -185,22 +185,24 @@ function Kpi({
   value,
   hint,
   tone,
+  icon,
 }: {
   label: string;
   value: string;
   hint?: string;
-  tone?: 'coupon' | 'net' | 'danger';
+  tone?: 'coupon' | 'net' | 'danger' | 'accent';
+  icon?: keyof typeof Ionicons.glyphMap;
 }) {
   if (tone === 'net') {
     return (
       <View style={[styles.kpi, styles.kpiNet]}>
         <View style={styles.kpiNetRow}>
           <View style={styles.kpiNetIcon}>
-            <Ionicons name="stats-chart" size={18} color="#7EBEFF" />
+            <Ionicons name={icon ?? 'stats-chart'} size={18} color="#7EBEFF" />
           </View>
           <View style={styles.kpiNetCopy}>
-            <Text style={styles.kpiNetLabel} numberOfLines={1}>
-              Valor líquido do evento
+            <Text style={styles.kpiNetLabel} numberOfLines={2}>
+              {label}
             </Text>
             <Text style={styles.kpiNetValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
               {value}
@@ -233,6 +235,7 @@ function Kpi({
           styles.kpiValue,
           tone === 'coupon' && styles.kpiCouponText,
           tone === 'danger' && styles.kpiDangerText,
+          tone === 'accent' && styles.kpiAccentValue,
         ]}
       >
         {value}
@@ -490,24 +493,21 @@ export default function EventoScreen() {
   const boletoGross = showBoletos && boletos ? boletos.totals.gross : 0;
   const boletoFees = showBoletos && boletos ? boletos.totals.fees : 0;
   const boletoNet = showBoletos && boletos ? boletos.totals.net : 0;
-  const boletoChannel: FinanceChannel | null =
-    showBoletos && boletos
-      ? {
-          count: boletos.totals.generated,
-          gross: boletos.totals.gross,
-          bank: 0,
-          gate8: boletos.totals.fees,
-          net: boletos.totals.net,
-          pix: 0,
-          credit_card: 0,
-          debit: 0,
-          cash: 0,
-          pixCount: 0,
-          creditCount: 0,
-          debitCount: 0,
-          cashCount: 0,
-        }
-      : null;
+  const boletoChannel: FinanceChannel = {
+    count: showBoletos && boletos ? boletos.totals.generated : 0,
+    gross: boletoGross,
+    bank: 0,
+    gate8: boletoFees,
+    net: boletoNet,
+    pix: 0,
+    credit_card: 0,
+    debit: 0,
+    cash: 0,
+    pixCount: 0,
+    creditCount: 0,
+    debitCount: 0,
+    cashCount: 0,
+  };
 
   async function moveLot(batchId: string, delta: number) {
     if (ended || reordering) return;
@@ -1002,16 +1002,6 @@ export default function EventoScreen() {
               <Text style={styles.empty}>{financeError}</Text>
             ) : finance ? (
               <>
-                <View style={styles.kpiGrid}>
-                  <Kpi
-                    label="Pacote 5 + 1"
-                    value={String(finance.packages.packagesSold)}
-                    hint={`${finance.packages.packageTickets} ingressos`}
-                  />
-                  <Kpi label="Extra" value={String(finance.packages.extraTickets)} />
-                  <Kpi label="Total de ingressos" value={String(finance.packages.total)} tone="net" />
-                  <Kpi label="Clientes" value={String(finance.packages.clients)} />
-                </View>
                 <ChannelCard
                   title="PIX"
                   accent={colors.success}
@@ -1025,6 +1015,13 @@ export default function EventoScreen() {
                   data={finance.siteCredit}
                 />
                 <ChannelCard
+                  title="Boleto"
+                  accent="#A78BFA"
+                  netColor="#C4B5FD"
+                  countUnit="boleto"
+                  data={boletoChannel}
+                />
+                <ChannelCard
                   title="POS (maquininha)"
                   accent={colors.warning}
                   netColor={colors.warning}
@@ -1036,17 +1033,17 @@ export default function EventoScreen() {
                     { label: 'PIX', value: finance.pos.pix, count: finance.pos.pixCount },
                   ]}
                 />
-                {boletoChannel ? (
-                  <ChannelCard
-                    title="Boletos"
-                    accent={colors.blue}
-                    netColor="#3B9BFF"
-                    countUnit="boleto"
-                    data={boletoChannel}
-                  />
-                ) : null}
 
                 <View style={styles.kpiGrid}>
+                  <Kpi
+                    label="Pacote 5 + 1"
+                    value={String(finance.packages.packagesSold)}
+                    hint={`${finance.packages.packageTickets} ingressos`}
+                  />
+                  <Kpi label="Extra" value={String(finance.packages.extraTickets)} />
+                  <Kpi label="Total de ingressos" value={String(finance.packages.total)} tone="accent" />
+                  <Kpi label="Clientes" value={String(finance.packages.clients)} />
+                  <Kpi label="Vendas efetuadas" value={String(finance.totals.salesCount)} />
                   <Kpi label="Ingressos pagos" value={String(finance.totals.paid)} />
                   <Kpi label="Cortesias" value={String(finance.totals.courtesy)} />
                   <Kpi
@@ -1057,14 +1054,6 @@ export default function EventoScreen() {
                     }`}
                     tone="coupon"
                   />
-                  <Kpi
-                    label="Estornos"
-                    value={formatBRL(finance.totals.cancelledAmount)}
-                    hint={`${finance.totals.cancelledTickets} ${
-                      finance.totals.cancelledTickets === 1 ? 'ingresso' : 'ingressos'
-                    }`}
-                    tone="danger"
-                  />
                   <Kpi label="Bruto" value={formatBRL(finance.totals.gross + boletoGross)} />
                   <Kpi
                     label="Taxas"
@@ -1074,9 +1063,9 @@ export default function EventoScreen() {
                     )}`}
                   />
                   <Kpi
-                    label="Valor líquido do evento"
+                    label="Líquido"
                     value={formatBRL(finance.totals.net + boletoNet)}
-                    tone="net"
+                    tone="accent"
                   />
                   <Kpi
                     label="Total líquido retirado"
@@ -1088,29 +1077,30 @@ export default function EventoScreen() {
                     }
                   />
                   <Kpi
-                    label="Líquido no banco (Site)"
+                    label="Líquido disponível"
                     value={formatBRL(bankNetOnSite(finance.site.net, boletoNet, finance.withdrawnTotal))}
                     tone="net"
+                    icon="wallet-outline"
                   />
                 </View>
                 <Text style={styles.financeHint}>
                   Cada compra, cupom e estorno ficam detalhados no financeiro do site.
                 </Text>
                 {canWrite ? (
-                <Pressable
-                  onPress={() => void downloadFinancePdf()}
-                  disabled={pdfBusy}
-                  style={({ pressed }) => [styles.pdfBtn, (pressed || pdfBusy) && styles.pressed]}
-                >
-                  {pdfBusy ? (
-                    <ActivityIndicator color={colors.loginText} />
-                  ) : (
-                    <>
-                      <Ionicons name="download-outline" size={18} color={colors.loginText} />
-                      <Text style={styles.pdfBtnText}>Baixar PDF</Text>
-                    </>
-                  )}
-                </Pressable>
+                  <Pressable
+                    onPress={() => void downloadFinancePdf()}
+                    disabled={pdfBusy}
+                    style={({ pressed }) => [styles.pdfBtn, (pressed || pdfBusy) && styles.pressed]}
+                  >
+                    {pdfBusy ? (
+                      <ActivityIndicator color={colors.loginText} />
+                    ) : (
+                      <>
+                        <Ionicons name="download-outline" size={18} color={colors.loginText} />
+                        <Text style={styles.pdfBtnText}>Baixar PDF</Text>
+                      </>
+                    )}
+                  </Pressable>
                 ) : null}
               </>
             ) : (
@@ -1953,6 +1943,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+  kpiAccentValue: {
+    color: '#3B9BFF',
   },
   kpiValue: {
     color: colors.text,
