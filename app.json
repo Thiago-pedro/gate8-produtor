@@ -23,9 +23,11 @@
       "softwareKeyboardLayoutMode": "resize",
       "package": "club.gate8.produtor",
       "versionCode": 9,
+      "icon": "./assets/images/android-icon-foreground.png",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
-        "foregroundImage": "./assets/images/adaptive-icon.png"
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png"
       },
       "permissions": [
         "android.permission.USE_BIOMETRIC",
@@ -40,7 +42,12 @@
           "image": "./assets/images/splash.png",
           "resizeMode": "contain",
           "backgroundColor": "#000000",
-          "enableFullScreenImage_legacy": true
+          "enableFullScreenImage_legacy": true,
+          "android": {
+            "image": "./assets/images/splash-android-empty.png",
+            "backgroundColor": "#000000",
+            "imageWidth": 48
+          }
         }
       ],
       "./plugins/withFullScreenSplash.js",

@@ -7,11 +7,12 @@ alwaysApply: true
 
 O Gate8 Manager usa o mesmo fluxo do app cliente:
 
-1. `app/index.tsx` mostra a arte do splash com `resizeMode="contain"` (cabe inteira, fundo preto).
-2. Depois de ~1,6s a tela escurece (~280ms).
-3. Só então navega para login/home.
-4. A tela destino usa `HomeBirth` (véu preto sumindo ~300ms).
+1. No Android, `Theme.App.SplashScreen` usa `windowBackground` com a arte cheia (`splash_full_bg`) e ícone animado vazio — sem splash pequenininho no centro.
+2. `app/index.tsx` mostra a mesma arte com `resizeMode="contain"` (cabe inteira, fundo preto) e esconde o splash nativo no `onLoadEnd`.
+3. Depois de ~1,6s a tela escurece (~280ms).
+4. Só então navega para login/home.
+5. A tela destino usa `HomeBirth` (véu preto sumindo ~300ms).
 
-Não estique a arte (`gravity="fill"`, `CENTER_CROP` ou `resizeMode="stretch"` / `cover`).
+No JS do `index`, não estique a arte (`resizeMode="stretch"` / `cover`).
 Não coloque um `ImageView` nativo por cima do React — isso esconde a transição.
-No Android, a janela nativa fica preta; a arte vive no JS do `index`.
+O `windowBackground` nativo (igual o cliente) é permitido; overlay em cima do React não.
