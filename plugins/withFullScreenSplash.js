@@ -38,15 +38,6 @@ function patchSplashThemeXml(xml) {
   );
 }
 
-async function writeTransparentPng(filePath) {
-  const buf = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5W2TQAAAAASUVORK5CYII=',
-    'base64'
-  );
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(filePath, buf);
-}
-
 async function ensureSplashDrawables(projectRoot) {
   const res = path.join(projectRoot, 'android/app/src/main/res');
   const src = path.join(projectRoot, SPLASH_SRC);
@@ -107,6 +98,8 @@ async function ensureSplashDrawables(projectRoot) {
 }
 
 async function neutralizeSplashLogos(projectRoot) {
+  // Igual ao cliente: remove splashscreen_logo*. O tema final usa splash_empty.
+  // NÃO substituir por PNG 1x1 — o AAPT2 do EAS quebra nesses arquivos.
   const res = path.join(projectRoot, 'android/app/src/main/res');
   const entries = await fs.promises.readdir(res, { withFileTypes: true });
   await Promise.all(
@@ -115,13 +108,8 @@ async function neutralizeSplashLogos(projectRoot) {
       .map(async (entry) => {
         const dir = path.join(res, entry.name);
         for (const name of ['splashscreen_logo.png', 'splashscreen_logo.xml']) {
-          const file = path.join(dir, name);
           try {
-            if (name.endsWith('.png')) {
-              await writeTransparentPng(file);
-            } else {
-              await fs.promises.unlink(file);
-            }
+            await fs.promises.unlink(path.join(dir, name));
           } catch {
             // ignore missing
           }
