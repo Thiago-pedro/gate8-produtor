@@ -26,6 +26,7 @@ import { useAuth } from '@/lib/auth-context';
 import { resolveEventRole, type TeamPermission } from '@/lib/team-access';
 import { fetchMyMembership, loadTeamPermissions } from '@/lib/team';
 import {
+  batchIssuance,
   batchIssuanceLabel,
   batchTicketName,
   fetchProducerEventDetail,
@@ -502,6 +503,18 @@ export default function EventoScreen() {
     debitCount: 0,
     cashCount: 0,
   };
+  // Pacote/Extra só quando a festa tem lote com cortesia embutida (ex.: 5+1) — igual ao site.
+  const packageBatch = batches.find((batch) => {
+    const { issued, complimentary } = batchIssuance(batch);
+    return complimentary > 0 && issued > complimentary;
+  });
+  const showPackageKpis = Boolean(packageBatch);
+  const packageLabel = packageBatch
+    ? (() => {
+        const { paid, complimentary } = batchIssuance(packageBatch);
+        return `Pacote ${paid} + ${complimentary}`;
+      })()
+    : 'Pacotes';
 
   async function moveLot(batchId: string, delta: number) {
     if (ended || reordering) return;
@@ -985,13 +998,15 @@ export default function EventoScreen() {
                   netColor="#3B9BFF"
                   data={finance.siteCredit}
                 />
-                <ChannelCard
-                  title="Boleto"
-                  accent="#A78BFA"
-                  netColor="#C4B5FD"
-                  countUnit="boleto"
-                  data={boletoChannel}
-                />
+                {showBoletos ? (
+                  <ChannelCard
+                    title="Boleto"
+                    accent="#A78BFA"
+                    netColor="#C4B5FD"
+                    countUnit="boleto"
+                    data={boletoChannel}
+                  />
+                ) : null}
                 <ChannelCard
                   title="POS (maquininha)"
                   accent={colors.warning}
@@ -1006,16 +1021,27 @@ export default function EventoScreen() {
                 />
 
                 <View style={styles.kpiGrid}>
-                  <Kpi
-                    label="Pacote 5 + 1"
-                    value={String(finance.packages.packagesSold)}
-                    hint={`${finance.packages.packageTickets} ingressos`}
-                  />
-                  <Kpi label="Extra" value={String(finance.packages.extraTickets)} />
-                  <Kpi label="Total de ingressos" value={String(finance.packages.total)} tone="accent" />
-                  <Kpi label="Clientes" value={String(finance.packages.clients)} />
-                  <Kpi label="Vendas efetuadas" value={String(finance.totals.salesCount)} />
-                  <Kpi label="Ingressos pagos" value={String(finance.totals.paid)} />
+                  {showPackageKpis ? (
+                    <>
+                      <Kpi
+                        label={packageLabel}
+                        value={String(finance.packages.packagesSold)}
+                        hint={`${finance.packages.packageTickets} ingressos`}
+                      />
+                      <Kpi label="Extra" value={String(finance.packages.extraTickets)} />
+                      <Kpi label="Total de ingressos" value={String(finance.packages.total)} tone="accent" />
+                      <Kpi label="Clientes" value={String(finance.packages.clients)} />
+                    </>
+                  ) : (
+                    finance.batchSales.map((batch) => (
+                      <Kpi
+                        key={batch.id}
+                        label={batch.name}
+                        value={String(batch.sold)}
+                        hint="INGRESSOS VENDIDOS"
+                      />
+                    ))
+                  )}
                   <Kpi label="Cortesias" value={String(finance.totals.courtesy)} />
                   <Kpi
                     label="Desconto cupom"

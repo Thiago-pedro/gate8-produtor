@@ -4,7 +4,9 @@ import {
   availableLiquid,
   bankNetOnSite,
   buildFinanceSalesCount,
+  computeBatchSoldCards,
   computePackageStats,
+  type FinanceBatchSale,
   type FinancePackageStats,
   type FinanceSaleRow,
 } from '@/lib/finance-calc';
@@ -14,7 +16,9 @@ export {
   availableLiquid,
   bankNetOnSite,
   buildFinanceSalesCount,
+  computeBatchSoldCards,
   computePackageStats,
+  type FinanceBatchSale,
   type FinancePackageStats,
   type FinanceSaleRow,
 };
@@ -89,6 +93,8 @@ export type EventFinance = {
     cancelledAmount: number;
   };
   packages: FinancePackageStats;
+  /** Ingressos vendidos por lote (sort_order). Usado quando a festa não tem pacote. */
+  batchSales: FinanceBatchSale[];
   withdrawnPaid: number;
   withdrawnPending: number;
   withdrawnTotal: number;
@@ -383,6 +389,8 @@ async function fetchTables(eventId: string) {
 async function fetchBatchPackageMeta(eventId: string) {
   const id = encodeURIComponent(eventId);
   return firstRest([
+    `ticket_batches?select=id,name,sort_order,tickets_per_purchase,complimentary_per_purchase&event_id=eq.${id}&order=sort_order.asc,created_at.asc,id.asc`,
+    `ticket_batches?select=id,name,sort_order,tickets_per_purchase,complimentary_per_purchase&event_id=eq.${id}`,
     `ticket_batches?select=id,tickets_per_purchase,complimentary_per_purchase&event_id=eq.${id}`,
     `ticket_batches?select=id&event_id=eq.${id}`,
   ]);
@@ -549,6 +557,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     fetchBoletosForFinance(eventId),
   ]);
   const packages = computePackageStats(tickets, batches);
+  const batchSales = computeBatchSoldCards(tickets, batches);
   let withdrawnPaid = 0;
   let withdrawnPending = 0;
   for (const row of withdrawals) {
@@ -867,6 +876,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     producerPercent,
     totals,
     packages,
+    batchSales,
     withdrawnPaid: money(withdrawnPaid),
     withdrawnPending: money(withdrawnPending),
     withdrawnTotal,

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   availableLiquid,
   buildFinanceSalesCount,
+  computeBatchSoldCards,
   computePackageStats,
 } from './finance-calc.ts';
 
@@ -68,6 +69,25 @@ test('mesmo cliente com pacote e compras adicionais conta um cliente', () => {
   assert.equal(stats.clients, 1);
   assert.equal(stats.packagesSold, 2);
   assert.equal(stats.courtesyTickets, Math.min(7, Math.ceil(7 / 6) * 1));
+});
+
+test('cards por lote: ignora cortesia e cancelado; ordena por sort_order', () => {
+  const batches = [
+    { id: 'b2', name: 'Pista', sort_order: 2 },
+    { id: 'b1', name: 'VIP', sort_order: 1 },
+  ];
+  const tickets = [
+    { batch_id: 'b1', status: 'issued', payment_method: 'pix' },
+    { batch_id: 'b1', status: 'issued', payment_method: 'pix' },
+    { batch_id: 'b1', status: 'issued', payment_method: null },
+    { batch_id: 'b1', status: 'cancelled', payment_method: 'pix' },
+    { batch_id: 'b2', status: 'issued', payment_method: 'credit_card' },
+  ];
+  const cards = computeBatchSoldCards(tickets, batches);
+  assert.deepEqual(cards, [
+    { id: 'b1', name: 'VIP', sold: 2 },
+    { id: 'b2', name: 'Pista', sold: 1 },
+  ]);
 });
 
 test('boleto de duas parcelas: parcial não conta; quitado conta uma vez', () => {

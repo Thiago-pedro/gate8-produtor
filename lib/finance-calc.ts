@@ -11,6 +11,12 @@ export type FinancePackageStats = {
   clients: number;
 };
 
+export type FinanceBatchSale = {
+  id: string;
+  name: string;
+  sold: number;
+};
+
 export type FinanceSaleRow = {
   isCourtesy?: boolean;
   isCancelled?: boolean;
@@ -107,6 +113,36 @@ export function computePackageStats(
     }
   }
   return out;
+}
+
+/**
+ * Cards por lote no Financeiro do site: um card por `ticket_batches` (sort_order),
+ * valor = ingressos não cancelados com `payment_method` preenchido (nulo = cortesia).
+ */
+export function computeBatchSoldCards(tickets: Row[], batches: Row[]): FinanceBatchSale[] {
+  const sold = new Map<string, number>();
+  for (const ticket of tickets) {
+    if (isCancelledStatus(ticket.status)) continue;
+    if (ticket.payment_method == null || ticket.payment_method === '') continue;
+    const batchId = text(ticket.batch_id);
+    if (!batchId) continue;
+    sold.set(batchId, (sold.get(batchId) ?? 0) + 1);
+  }
+
+  const ordered = [...batches].sort((a, b) => {
+    const byOrder = num(a.sort_order) - num(b.sort_order);
+    if (byOrder !== 0) return byOrder;
+    return text(a.id).localeCompare(text(b.id));
+  });
+
+  return ordered.map((batch) => {
+    const id = text(batch.id);
+    return {
+      id,
+      name: text(batch.name).trim() || 'Lote',
+      sold: sold.get(id) ?? 0,
+    };
+  });
 }
 
 /** Uma linha = uma venda; boleto só conta com todas as parcelas pagas. */
