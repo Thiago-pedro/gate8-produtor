@@ -22,7 +22,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "club.gate8.produtor",
-      "versionCode": 9,
+      "versionCode": 10,
       "icon": "./assets/images/android-icon-foreground.png",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
@@ -40,7 +40,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash.png",
-          "resizeMode": "contain",
+          "resizeMode": "cover",
           "backgroundColor": "#000000",
           "enableFullScreenImage_legacy": true,
           "android": {

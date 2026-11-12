@@ -93,7 +93,7 @@ export default function SplashIndex() {
     <View style={styles.hold}>
       <Image
         source={splashSource}
-        resizeMode="contain"
+        resizeMode="cover"
         fadeDuration={0}
         onLoadEnd={() => {
           void SplashScreen.hideAsync().catch(() => undefined);

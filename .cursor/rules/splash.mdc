@@ -5,14 +5,14 @@ alwaysApply: true
 
 # Um splash só
 
-O Gate8 Manager usa o mesmo fluxo do app cliente:
+O Gate8 Manager espelha o fluxo do app cliente (não editar o cliente):
 
-1. No Android, `Theme.App.SplashScreen` usa `windowBackground` com a arte cheia (`splash_full_bg`) e ícone animado vazio — sem splash pequenininho no centro.
-2. `app/index.tsx` mostra a mesma arte com `resizeMode="contain"` (cabe inteira, fundo preto) e esconde o splash nativo no `onLoadEnd`.
+1. Nativo Android: `windowBackground` = splash cheia (`splash_full_bg`); ícone animado vazio (`splash_empty`). Sem pequenininho no centro. Sem `icon_preferred`.
+2. `app/index.tsx` mostra a mesma arte com `resizeMode="cover"` e chama `SplashScreen.hideAsync` no `onLoadEnd`.
 3. Depois de ~1,6s a tela escurece (~280ms).
 4. Só então navega para login/home.
-5. A tela destino usa `HomeBirth` (véu preto sumindo ~300ms).
+5. Destino usa `HomeBirth` (véu preto ~300ms).
 
-No JS do `index`, não estique a arte (`resizeMode="stretch"` / `cover`).
-Não coloque um `ImageView` nativo por cima do React — isso esconde a transição.
-O `windowBackground` nativo (igual o cliente) é permitido; overlay em cima do React não.
+Não colocar `ImageView` nativo por cima do React.
+O plugin `withFullScreenSplash` reescreve `Theme.App.SplashScreen` no mod `finalized` (no Expo 58 `dangerous` roda antes do `styles.xml` e o expo-splash-screen substitui o tema).
+Expo Go / Metro não exercitam o splash nativo da Play — validar sempre em AAB/APK.
