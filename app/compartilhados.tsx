@@ -21,7 +21,7 @@ import { NeonCard } from '@/components/NeonCard';
 import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
-import { formatEventDate } from '@/lib/format';
+import { formatEventPeriod } from '@/lib/event-period';
 import { useProducer } from '@/lib/producer-context';
 import { acceptTeamInvite, fetchSharedMenu, type SharedEvent, type SharedMenu } from '@/lib/team';
 
@@ -48,7 +48,9 @@ function SharedEventCard({
 
         <View style={styles.datePill}>
           <Ionicons name="calendar-outline" size={13} color="rgba(255,255,255,0.78)" />
-          <Text style={styles.datePillText}>{formatEventDate(event.eventDate)}</Text>
+          <Text style={styles.datePillText}>
+            {formatEventPeriod(event.eventDate, event.eventEndDate)}
+          </Text>
         </View>
 
         {event.location ? (

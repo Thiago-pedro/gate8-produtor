@@ -13,6 +13,7 @@ import { EnvioSection } from '@/components/EnvioSection';
 import { EquipeSection } from '@/components/EquipeSection';
 import { EventArt } from '@/components/EventArt';
 import { EventQrModal } from '@/components/EventQrModal';
+import { EventSalesPulse } from '@/components/EventSalesPulse';
 import { EstornosSection } from '@/components/EstornosSection';
 import { NewBatchModal } from '@/components/NewBatchModal';
 import { Loader } from '@/components/Loader';
@@ -29,6 +30,7 @@ import {
   batchIssuance,
   batchIssuanceLabel,
   batchTicketName,
+  fetchEventSalesPulse,
   fetchProducerEventDetail,
   isOpenEvent,
   reorderTicketBatches,
@@ -36,6 +38,8 @@ import {
   type EventBatch,
   type ProducerEventDetail,
 } from '@/lib/events';
+import type { SalesPulse } from '@/lib/sales-pulse';
+import { CACHE_TTL, cachedQuery, peekCachedData } from '@/lib/data-cache';
 import {
   availableLiquid,
   fetchEventFinance,
@@ -43,7 +47,8 @@ import {
   type FinanceChannel,
 } from '@/lib/finance';
 import { boletoHistoryVisible, fetchEventBoletos, type EventBoletos } from '@/lib/boletos';
-import { formatBRL, formatEventDateTime } from '@/lib/format';
+import { formatEventPeriodParts } from '@/lib/event-period';
+import { formatBRL, splitEventLocation } from '@/lib/format';
 
 type EventSection =
   | 'lotes'
@@ -97,15 +102,6 @@ const DELIVERY_TABS: { key: EventSection; label: string; icon: keyof typeof Ioni
   { key: 'historico', label: 'Validação', icon: 'checkmark-circle-outline' },
   { key: 'termos', label: 'Termos de uso', icon: 'document-text-outline' },
 ];
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
 
 function ChannelCard({
   title,
@@ -259,6 +255,7 @@ export default function EventoScreen() {
   const [membershipRole, setMembershipRole] = useState<'viewer' | null>(null);
   const [menuAccess, setMenuAccess] = useState<Record<string, boolean> | null>(null);
   const [detail, setDetail] = useState<ProducerEventDetail | null>(null);
+  const [salesPulse, setSalesPulse] = useState<SalesPulse | null>(null);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -331,40 +328,100 @@ export default function EventoScreen() {
   const load = useCallback(
     async (soft = false) => {
       if (!id) return;
-      if (!soft) setBusy(true);
+      const cacheKey = `event-detail:${id}`;
+      if (!soft) {
+        const warm = peekCachedData<ProducerEventDetail>(cacheKey, user?.id);
+        if (warm) {
+          setDetail(warm);
+          setBusy(false);
+        } else {
+          setBusy(true);
+        }
+      }
       setError(null);
       try {
-        const next = await fetchProducerEventDetail(id);
+        const next = await cachedQuery(cacheKey, () => fetchProducerEventDetail(id), {
+          ttlMs: CACHE_TTL.eventDetail,
+          force: soft,
+          userId: user?.id,
+          onCached: (cached) => setDetail(cached),
+        });
         setDetail(next);
         if (!soft) {
           setSection(next.event.hidden_event_type === 'ticket_delivery' ? 'envio' : 'financeiro');
         }
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Não foi possível abrir o evento.');
+        setDetail((current) => {
+          if (!current) {
+            setError(caught instanceof Error ? caught.message : 'Não foi possível abrir o evento.');
+          }
+          return current;
+        });
       } finally {
         setBusy(false);
         setRefreshing(false);
       }
     },
-    [id]
+    [id, user?.id]
+  );
+
+  const loadSalesPulse = useCallback(
+    async (force = false) => {
+      if (!id) return;
+      const cacheKey = `sales-pulse:${id}`;
+      if (!force) {
+        const warm = peekCachedData<SalesPulse>(cacheKey, user?.id);
+        if (warm) setSalesPulse(warm);
+      }
+      try {
+        const next = await cachedQuery(cacheKey, () => fetchEventSalesPulse(id), {
+          ttlMs: CACHE_TTL.salesPulse,
+          force,
+          userId: user?.id,
+          onCached: (cached) => setSalesPulse(cached),
+        });
+        setSalesPulse(next);
+      } catch {
+        // Mantém o último pulse válido; o detalhe do evento já tem o restante.
+      }
+    },
+    [id, user?.id]
   );
 
   const loadFinance = useCallback(async (soft = false) => {
     if (!id) return;
-    if (!soft) setFinanceBusy(true);
+    const cacheKey = `finance:${id}`;
+    const warm = peekCachedData<EventFinance>(cacheKey, user?.id);
+    if (warm) setFinance(warm);
+    if (!soft && !warm) setFinanceBusy(true);
+    else if (!soft) setFinanceBusy(false);
     setFinanceError(null);
     try {
       const [financeResult, boletoResult] = await Promise.allSettled([
-        fetchEventFinance(id),
+        cachedQuery(cacheKey, () => fetchEventFinance(id), {
+          ttlMs: CACHE_TTL.finance,
+          force: soft,
+          timeoutMs: 55_000,
+          userId: user?.id,
+          onCached: (cached) => setFinance(cached),
+        }),
         fetchEventBoletos(id),
       ]);
       if (financeResult.status === 'fulfilled') {
         setFinance(financeResult.value);
+        setFinanceError(null);
       } else {
         const caught = financeResult.reason;
-        setFinanceError(
-          caught instanceof Error ? caught.message : 'Não foi possível carregar o financeiro.'
-        );
+        if (!warm) {
+          setFinance((current) => {
+            if (!current) {
+              setFinanceError(
+                caught instanceof Error ? caught.message : 'Não foi possível carregar o financeiro.'
+              );
+            }
+            return current;
+          });
+        }
       }
       if (boletoResult.status === 'fulfilled') {
         setBoletos(boletoResult.value);
@@ -378,11 +435,23 @@ export default function EventoScreen() {
     } finally {
       setFinanceBusy(false);
     }
-  }, [id]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadSalesPulse();
+  }, [loadSalesPulse]);
+
+  useEffect(() => {
+    if (!id) return;
+    const timer = setInterval(() => {
+      void loadSalesPulse();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [id, loadSalesPulse]);
 
   useEffect(() => {
     if (!user || !detail) return;
@@ -427,9 +496,11 @@ export default function EventoScreen() {
   }, [membershipRole, menuAccess, section]);
 
   useEffect(() => {
-    if ((section !== 'financeiro' && section !== 'boletos') || !id || finance || financeBusy || financeError) return;
+    if ((section !== 'financeiro' && section !== 'boletos') || !id) return;
     void loadFinance();
-  }, [section, id, finance, financeBusy, financeError, loadFinance]);
+    // Só reage a troca de aba/evento; pull-to-refresh chama loadFinance(true) à parte.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- evita loop com financeBusy
+  }, [section, id]);
 
   if (busy && !detail) {
     return (
@@ -477,6 +548,10 @@ export default function EventoScreen() {
   const gateLink = event.slug ? `${siteUrl}/p/${event.slug}` : null;
   const isHidden = hiddenOverride ?? event.is_hidden;
   const delivery = event.hidden_event_type === 'ticket_delivery';
+  const place = splitEventLocation(event.location);
+  const dateParts = formatEventPeriodParts(event.event_date, event.event_end_date);
+  const dateHasEnd = Boolean(dateParts.mid && dateParts.line2);
+  const showWhenWhere = Boolean(event.event_date || place.title);
   const viewerTabs = VIEWER_TABS.filter((tab) => menuAccess?.[tab.permission] !== false);
   const tabs = canWrite
     ? [{ key: 'equipe' as const, label: 'Equipe', icon: 'people-outline' as const }, ...(delivery ? DELIVERY_TABS : EVENT_TABS)]
@@ -613,6 +688,7 @@ export default function EventoScreen() {
               setRefreshing(true);
               setReloadKey((value) => value + 1);
               void load(true);
+              void loadSalesPulse(true);
               if (section === 'financeiro' || section === 'boletos') void loadFinance(true);
             }}
             tintColor={colors.blue}
@@ -623,8 +699,55 @@ export default function EventoScreen() {
         }
       >
         <Text style={styles.name}>{event.name}</Text>
-        <Text style={styles.meta}>{formatEventDateTime(event.event_date)}</Text>
-        {event.location ? <Text style={styles.meta}>{event.location}</Text> : null}
+        {showWhenWhere ? (
+          <View style={styles.whenWhere}>
+            <View style={[styles.whenWhereCol, !dateHasEnd && styles.whenWhereColCenter]}>
+              <Ionicons
+                name="calendar-outline"
+                size={16}
+                color={colors.blue}
+                style={!dateHasEnd ? undefined : styles.whenWhereIcon}
+              />
+              <View style={styles.whenWhereCopy}>
+                <Text
+                  style={[styles.whenWhereTitle, !dateHasEnd && styles.whenWhereTitleSolo]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
+                  {dateParts.line1}
+                </Text>
+                {dateHasEnd ? (
+                  <>
+                    <Text style={styles.whenWhereMid}>até</Text>
+                    <Text
+                      style={styles.whenWhereTitleEnd}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                    >
+                      {dateParts.line2}
+                    </Text>
+                  </>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.whenWhereDivider} />
+            <View style={styles.whenWhereCol}>
+              <Ionicons name="location-outline" size={16} color={colors.blue} style={styles.whenWhereIcon} />
+              <View style={styles.whenWhereCopy}>
+                <Text style={styles.whenWhereTitle} numberOfLines={2}>
+                  {place.title || 'Local a definir'}
+                </Text>
+                {place.detail ? (
+                  <Text style={styles.whenWhereSub} numberOfLines={3}>
+                    {place.detail}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : null}
 
         {delivery ? (
           <View style={styles.deliveryBadge}>
@@ -683,13 +806,7 @@ export default function EventoScreen() {
         </View>
         )}
 
-        {delivery ? null : (
-        <View style={styles.stats}>
-          <Stat label="Vendidos" value={String(detail.sold)} />
-          <Stat label="Cortesias" value={String(detail.courtesy)} />
-          <Stat label="Validados" value={String(detail.validated)} />
-        </View>
-        )}
+        {delivery || !salesPulse ? null : <EventSalesPulse pulse={salesPulse} />}
 
         <ScrollView
           horizontal
@@ -1265,6 +1382,71 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     marginTop: 4,
+  },
+  whenWhere: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,123,255,0.45)',
+    backgroundColor: 'rgba(0,123,255,0.06)',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+  },
+  whenWhereCol: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  whenWhereColCenter: {
+    alignItems: 'center',
+  },
+  whenWhereIcon: {
+    marginTop: 2,
+  },
+  whenWhereCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  whenWhereTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  whenWhereTitleSolo: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  whenWhereMid: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginVertical: 3,
+  },
+  whenWhereTitleEnd: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  whenWhereSub: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '500',
+    lineHeight: 15,
+    marginTop: 3,
+  },
+  whenWhereDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    marginHorizontal: 6,
   },
   deliveryBadge: {
     alignSelf: 'flex-start',

@@ -1,12 +1,14 @@
 import { getAccessToken } from '@/lib/auth';
 import { assertEventOwner } from '@/lib/team';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
+import { buildSalesPulse, type SalesPulse } from '@/lib/sales-pulse';
 
 export type ProducerEvent = {
   id: string;
   name: string;
   slug: string;
   event_date: string | null;
+  event_end_date: string | null;
   location: string | null;
   capacity: number | null;
   status: string | null;
@@ -51,6 +53,7 @@ export type ProducerEventDetail = {
     name: string;
     slug: string;
     event_date: string | null;
+    event_end_date: string | null;
     location: string | null;
     capacity: number | null;
     status: string | null;
@@ -209,6 +212,20 @@ async function restOrEmpty<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+async function pagedRest(path: string): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = [];
+  let from = 0;
+  for (;;) {
+    const page = asRows(
+      await rest(`${path}${path.includes('?') ? '&' : '?'}offset=${from}&limit=1000`)
+    );
+    rows.push(...page);
+    if (page.length < 1000) break;
+    from += 1000;
+  }
+  return rows;
+}
+
 function asRows(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
 }
@@ -321,6 +338,7 @@ export function isOpenEvent(event: { is_ended?: boolean | null; status?: string 
 export async function fetchProducerEvents(userId: string): Promise<ProducerEvent[]> {
   const id = encodeURIComponent(userId);
   const rows = await firstRest([
+    `events?select=id,name,slug,event_date,event_end_date,location,capacity,status,banner_url,is_ended,is_hidden&created_by=eq.${id}&order=event_date.desc`,
     `events?select=id,name,slug,event_date,location,capacity,status,banner_url,is_ended,is_hidden&created_by=eq.${id}&order=event_date.desc`,
     `events?select=id,name,slug,event_date,location,capacity,status,banner_url,is_ended&created_by=eq.${id}&order=event_date.desc`,
   ]);
@@ -331,6 +349,7 @@ export async function fetchProducerEvents(userId: string): Promise<ProducerEvent
       name: text(row.name),
       slug: text(row.slug),
       event_date: row.event_date ? text(row.event_date) : null,
+      event_end_date: row.event_end_date ? text(row.event_end_date) : null,
       location: row.location ? text(row.location) : null,
       capacity: row.capacity == null ? null : num(row.capacity),
       status: row.status ? text(row.status) : null,
@@ -349,6 +368,15 @@ export async function countValidatedTickets(eventId: string) {
   const counted = await restCount(`tickets?select=id&event_id=eq.${id}&or=${usedFilter}`);
   if (counted != null) return counted;
   return restCount(`tickets?select=id&event_id=eq.${id}&checked_in_at=not.is.null`);
+}
+
+/** Visão geral: todos os tickets do evento (paginado), mesmas regras do site. */
+export async function fetchEventSalesPulse(eventId: string): Promise<SalesPulse> {
+  const id = encodeURIComponent(eventId);
+  const tickets = await pagedRest(
+    `tickets?select=id,status,payment_method,created_at&event_id=eq.${id}&order=created_at.asc,id.asc`
+  );
+  return buildSalesPulse(tickets);
 }
 
 export async function fetchProducerEventDetail(eventId: string): Promise<ProducerEventDetail> {
@@ -492,6 +520,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       name: text(row.name),
       slug: text(row.slug),
       event_date: row.event_date ? text(row.event_date) : null,
+      event_end_date: row.event_end_date ? text(row.event_end_date) : null,
       location: row.location ? text(row.location) : null,
       capacity: row.capacity == null ? null : num(row.capacity),
       status: row.status ? text(row.status) : null,

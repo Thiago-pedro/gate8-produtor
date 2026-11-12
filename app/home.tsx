@@ -14,15 +14,12 @@ import { Wordmark } from '@/components/Wordmark';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/lib/auth-context';
 import { useErrorNotice } from '@/lib/error-notice';
+import { CACHE_TTL, cachedQuery, peekCachedData } from '@/lib/data-cache';
 import { fetchProducerEvents, isOpenEvent, type ProducerEvent } from '@/lib/events';
-import { formatEventDate } from '@/lib/format';
+import { formatEventPeriod } from '@/lib/event-period';
 import { fetchProducerFirstName } from '@/lib/producer';
 import { useProducer } from '@/lib/producer-context';
 import { fetchSharedMenu, type SharedMenu } from '@/lib/team';
-
-function formatDate(value: string | null) {
-  return formatEventDate(value);
-}
 
 type EventFilter = 'all' | 'active' | 'ended';
 
@@ -96,13 +93,42 @@ export default function HomeScreen() {
 
   const load = useCallback(async (soft = false) => {
     if (!user) return;
-    if (!soft) setBusy(true);
+    const cacheKey = `events-list:${user.id}`;
+    if (!soft) {
+      const warm = peekCachedData<ProducerEvent[]>(cacheKey, user.id);
+      if (warm) {
+        setEvents(warm);
+        setBusy(false);
+      } else {
+        setBusy(true);
+      }
+    }
     setError(null);
     try {
-      const owned = status === 'producer' ? await fetchProducerEvents(user.id) : [];
-      setEvents(owned.map((event) => ({ ...event, access: 'owner' as const })));
+      const owned =
+        status === 'producer'
+          ? await cachedQuery(
+              cacheKey,
+              async () => {
+                const rows = await fetchProducerEvents(user.id);
+                return rows.map((event) => ({ ...event, access: 'owner' as const }));
+              },
+              {
+                ttlMs: CACHE_TTL.eventsList,
+                force: soft,
+                userId: user.id,
+                onCached: (cached) => setEvents(cached),
+              }
+            )
+          : [];
+      setEvents(owned);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Não foi possível carregar os eventos.');
+      setEvents((current) => {
+        if (current.length === 0) {
+          setError(caught instanceof Error ? caught.message : 'Não foi possível carregar os eventos.');
+        }
+        return current;
+      });
     } finally {
       setBusy(false);
       setRefreshing(false);
@@ -311,7 +337,7 @@ export default function HomeScreen() {
                 <View style={styles.metaRow}>
                   <Ionicons name="calendar-outline" size={16} color={colors.blue} />
                   <Text style={[styles.eventMeta, { fontSize: eventMetaSize }]} numberOfLines={1}>
-                    {formatDate(event.event_date)}
+                    {formatEventPeriod(event.event_date, event.event_end_date)}
                   </Text>
                 </View>
                 {event.location ? (

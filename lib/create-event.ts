@@ -173,6 +173,7 @@ export async function createProducerEvent(input: {
   name: string;
   description: string;
   eventDate: Date;
+  eventEndDate?: Date | null;
   location: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -199,6 +200,7 @@ export async function createProducerEvent(input: {
       name: input.name.trim(),
       description: input.description.trim() || null,
       event_date: input.eventDate.toISOString(),
+      event_end_date: input.eventEndDate ? input.eventEndDate.toISOString() : null,
       location: input.location,
       latitude: input.latitude,
       longitude: input.longitude,

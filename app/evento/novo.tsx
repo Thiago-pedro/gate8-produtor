@@ -35,6 +35,7 @@ import {
   validateCoupon,
   type EventCouponDraft,
 } from '@/lib/create-event';
+import { validateEventPeriod } from '@/lib/event-period';
 import { formatEventDateTime } from '@/lib/format';
 
 const STEPS = ['Identidade', 'Data & Local', 'Regras & Aceite'] as const;
@@ -44,16 +45,24 @@ function DateTimeField({
   label,
   value,
   onChange,
+  placeholder = 'Selecione data e hora',
+  clearable = false,
+  help,
+  minimumDate,
 }: {
   label: string;
   value: Date | null;
-  onChange: (next: Date) => void;
+  onChange: (next: Date | null) => void;
+  placeholder?: string;
+  clearable?: boolean;
+  help?: string;
+  minimumDate?: Date;
 }) {
   const [open, setOpen] = useState<'date' | 'time' | 'datetime' | null>(null);
   const [draft, setDraft] = useState(value ?? new Date());
 
   function start() {
-    const next = value ?? new Date();
+    const next = value ?? minimumDate ?? new Date();
     setDraft(next);
     setOpen(Platform.OS === 'ios' ? 'datetime' : 'date');
   }
@@ -77,12 +86,20 @@ function DateTimeField({
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <Pressable onPress={start} style={styles.dateBtn}>
-        <Ionicons name="calendar-outline" size={16} color={colors.blue} />
-        <Text style={[styles.dateText, !value && styles.placeholder]}>
-          {value ? formatEventDateTime(value.toISOString()) : 'Selecione data e hora'}
-        </Text>
-      </Pressable>
+      {help ? <Text style={styles.help}>{help}</Text> : null}
+      <View style={styles.dateRow}>
+        <Pressable onPress={start} style={[styles.dateBtn, styles.dateBtnFlex]}>
+          <Ionicons name="calendar-outline" size={16} color={colors.blue} />
+          <Text style={[styles.dateText, !value && styles.placeholder]}>
+            {value ? formatEventDateTime(value.toISOString()) : placeholder}
+          </Text>
+        </Pressable>
+        {clearable && value ? (
+          <Pressable onPress={() => onChange(null)} hitSlop={10} style={styles.dateClear}>
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
+      </View>
       {open ? (
         <View>
           <DateTimePicker
@@ -90,7 +107,7 @@ function DateTimeField({
             mode={open}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             is24Hour
-            minimumDate={new Date()}
+            minimumDate={minimumDate}
             onChange={onPick}
           />
           {Platform.OS === 'ios' ? (
@@ -140,6 +157,7 @@ export default function NovoEventoScreen() {
   const [description, setDescription] = useState('');
   const [banner, setBanner] = useState<{ uri: string; type: string } | null>(null);
   const [eventDate, setEventDate] = useState<Date | null>(null);
+  const [eventEndDate, setEventEndDate] = useState<Date | null>(null);
   const [capacity, setCapacity] = useState('');
   const [venueName, setVenueName] = useState('');
   const [cep, setCep] = useState('');
@@ -188,6 +206,8 @@ export default function NovoEventoScreen() {
     }
     if (step === 2) {
       if (!eventDate) return toast('Selecione a data e hora do evento.');
+      const periodError = validateEventPeriod(eventDate, eventEndDate);
+      if (periodError) return toast(periodError);
       setError(null);
       setStep(3);
     }
@@ -195,6 +215,8 @@ export default function NovoEventoScreen() {
 
   async function onSubmit() {
     if (!eventDate) return toast('Selecione a data e hora do evento.');
+    const periodError = validateEventPeriod(eventDate, eventEndDate);
+    if (periodError) return toast(periodError);
     if (!accepted) return toast('Você precisa aceitar os Termos de Uso da Gate8.');
     const couponError = validateCoupon(coupon);
     if (couponError) return toast(couponError);
@@ -230,6 +252,7 @@ export default function NovoEventoScreen() {
         name,
         description,
         eventDate,
+        eventEndDate,
         location: location || null,
         latitude,
         longitude,
@@ -346,7 +369,26 @@ export default function NovoEventoScreen() {
 
           {step === 2 ? (
             <View style={styles.gap}>
-              <DateTimeField label="Data e hora *" value={eventDate} onChange={setEventDate} />
+              <DateTimeField
+                label="Início *"
+                value={eventDate}
+                onChange={(next) => {
+                  setEventDate(next);
+                  if (next && eventEndDate && eventEndDate.getTime() <= next.getTime()) {
+                    setEventEndDate(null);
+                  }
+                }}
+                minimumDate={new Date()}
+              />
+              <DateTimeField
+                label="Término (opcional)"
+                value={eventEndDate}
+                onChange={setEventEndDate}
+                placeholder="Sem horário de término"
+                clearable
+                help="Preencha só se o evento terminar em outro dia ou horário que você queira mostrar. Em branco, aparece só o início."
+                minimumDate={eventDate ?? new Date()}
+              />
               <Text style={styles.label}>Capacidade (opcional)</Text>
               <TextInput
                 value={capacity}
@@ -675,8 +717,12 @@ const styles = StyleSheet.create({
   gap: { gap: 10 },
   field: { gap: 6 },
   label: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '600' },
+  help: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: -2 },
   group: { color: colors.text, fontSize: 15, fontWeight: '700' },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dateBtnFlex: { flex: 1 },
+  dateClear: { padding: 4 },
   typeGrid: { gap: 8, marginTop: 12 },
   typeCard: {
     borderWidth: 1,

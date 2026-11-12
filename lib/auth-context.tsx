@@ -9,6 +9,7 @@ import {
   type AuthUser,
 } from '@/lib/auth';
 import { biometricsAvailable, confirmDeviceOwner, readBiometricPreference } from '@/lib/biometric';
+import { clearUserDataCache } from '@/lib/data-cache';
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -87,8 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { needsConfirmation: result.needsConfirmation };
       },
       signOut: async () => {
+        const previousId = pendingUser.current?.id ?? user?.id ?? null;
         pendingUser.current = null;
         setLocked(false);
+        await clearUserDataCache(previousId);
         await signOutRequest();
         setUser(null);
       },

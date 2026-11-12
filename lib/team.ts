@@ -251,7 +251,7 @@ export async function fetchMyMembership(eventId: string, userId: string, email: 
 }
 
 const EVENT_EMBED =
-  'events(id,name,event_date,location,capacity,banner_url,is_ended,is_hidden,hidden_event_type,ticket_delivery_active,status)';
+  'events(id,name,event_date,event_end_date,location,capacity,banner_url,is_ended,is_hidden,hidden_event_type,ticket_delivery_active,status)';
 
 function embeddedEvent(row: Row) {
   return (row.events as Row) ?? null;
@@ -330,6 +330,7 @@ export type SharedEvent = {
   id: string;
   name: string;
   eventDate: string | null;
+  eventEndDate: string | null;
   location: string | null;
   bannerUrl: string | null;
   isEnded: boolean;
@@ -352,6 +353,7 @@ export async function fetchViewerEvents(userId: string): Promise<SharedEvent[]> 
           id: text(event, 'id') || text(row, 'event_id'),
           name: text(event, 'name') || 'Evento',
           eventDate: text(event, 'event_date') || null,
+          eventEndDate: text(event, 'event_end_date') || null,
           location: text(event, 'location') || null,
           bannerUrl: text(event, 'banner_url') || null,
           isEnded,

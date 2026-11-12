@@ -22,7 +22,7 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "club.gate8.produtor",
-      "versionCode": 11,
+      "versionCode": 12,
       "icon": "./assets/images/android-icon-foreground.png",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
