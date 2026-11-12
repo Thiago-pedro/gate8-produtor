@@ -97,25 +97,10 @@ async function ensureSplashDrawables(projectRoot) {
   }
 }
 
-async function neutralizeSplashLogos(projectRoot) {
-  // Igual ao cliente: remove splashscreen_logo*. O tema final usa splash_empty.
-  // NÃO substituir por PNG 1x1 — o AAPT2 do EAS quebra nesses arquivos.
-  const res = path.join(projectRoot, 'android/app/src/main/res');
-  const entries = await fs.promises.readdir(res, { withFileTypes: true });
-  await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory() && entry.name.startsWith('drawable'))
-      .map(async (entry) => {
-        const dir = path.join(res, entry.name);
-        for (const name of ['splashscreen_logo.png', 'splashscreen_logo.xml']) {
-          try {
-            await fs.promises.unlink(path.join(dir, name));
-          } catch {
-            // ignore missing
-          }
-        }
-      })
-  );
+async function neutralizeSplashLogos(_projectRoot) {
+  // Mantém splashscreen_logo gerado pelo expo-splash-screen (PNG vazio válido).
+  // Apagar quebra drawable/ic_launcher_background.xml; substituir por 1x1 quebra o AAPT2.
+  // O tema final usa splash_empty — esses logos só existem para o link de recursos.
 }
 
 function scrubMainActivity(contents) {
