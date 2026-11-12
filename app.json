@@ -2,7 +2,7 @@
   "expo": {
     "name": "Gate8 Manager",
     "slug": "gate8-produtor",
-    "owner": "gate8-tickets",
+    "owner": "thiago-gate8",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -84,7 +84,7 @@
         "style": "light"
       },
       "eas": {
-        "projectId": "e028c1a3-4ee6-4495-b553-3f6e041722f0"
+        "projectId": "641c28a9-3411-4726-ba57-a8032b2353bf"
       }
     }
   }
