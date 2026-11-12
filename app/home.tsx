@@ -206,6 +206,8 @@ export default function HomeScreen() {
               void load(true);
             }}
             tintColor={colors.blue}
+            colors={[colors.blue]}
+            progressBackgroundColor={colors.bgElevated}
           />
         }
       >

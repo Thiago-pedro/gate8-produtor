@@ -404,10 +404,7 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
     checkinRows,
     cancelledRows,
     courtesyAll,
-    paidAll,
-    cancelledPaid,
     cancelledCourtesy,
-    cancelledByOrder,
     validatedCount,
     ticketTotal,
     cancelledExact,
@@ -428,15 +425,8 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       `tickets?select=id&event_id=eq.${id}&status=eq.cancelled&limit=1000`,
     ]),
     restCount(`tickets?select=id&event_id=eq.${id}&payment_method=is.null`),
-    restCount(`tickets?select=id&event_id=eq.${id}&payment_method=not.is.null`),
-    restCount(
-      `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&status=in.(${CANCELLED_IN})`
-    ),
     restCount(
       `tickets?select=id&event_id=eq.${id}&payment_method=is.null&status=in.(${CANCELLED_IN})`
-    ),
-    restCount(
-      `tickets?select=id&event_id=eq.${id}&payment_method=not.is.null&purchase_orders.status=in.(${CANCELLED_IN})`
     ),
     countValidatedTickets(eventId),
     restCount(`tickets?select=id&event_id=eq.${id}`),
@@ -455,21 +445,38 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
 
   const cancelled = cancelledRows.length;
   const validated = validatedCount ?? usedTickets.length;
-  const courtesy =
-    courtesyAll != null
-      ? Math.max(0, courtesyAll - (cancelledCourtesy ?? 0))
-      : 0;
-  const refundedPaid =
-    cancelledPaid != null || cancelledByOrder != null
-      ? Math.max(cancelledPaid ?? 0, cancelledByOrder ?? 0)
-      : cancelled;
-  const soldCount =
-    paidAll != null
-      ? Math.max(0, paidAll - refundedPaid)
-      : Math.max(0, sold - courtesy - cancelled);
+  const freeCourtesy =
+    courtesyAll != null ? Math.max(0, courtesyAll - (cancelledCourtesy ?? 0)) : 0;
   const issued =
-    ticketTotal != null ? Math.max(0, ticketTotal - (cancelledExact ?? cancelled)) : soldCount;
-  const isDelivery = row.hidden_event_type === 'ticket_delivery';
+    ticketTotal != null
+      ? Math.max(0, ticketTotal - (cancelledExact ?? cancelled))
+      : Math.max(0, sold - (cancelledExact ?? cancelled));
+
+  // Cortesias no mesmo critério do site: 1 cortesia por pacote (ex.: 5+1).
+  const packageBatches = batches.filter(
+    (batch) =>
+      batch.complimentary_per_purchase > 0 &&
+      batch.tickets_per_purchase > batch.complimentary_per_purchase
+  );
+  const packageTicketCounts = await Promise.all(
+    packageBatches.map(async (batch) => {
+      const batchId = encodeURIComponent(batch.id);
+      const [totalInBatch, cancelledInBatch] = await Promise.all([
+        restCount(`tickets?select=id&event_id=eq.${id}&batch_id=eq.${batchId}`),
+        restCount(
+          `tickets?select=id&event_id=eq.${id}&batch_id=eq.${batchId}&status=in.(${CANCELLED_IN})`
+        ),
+      ]);
+      const active =
+        totalInBatch != null
+          ? Math.max(0, totalInBatch - (cancelledInBatch ?? 0))
+          : Math.max(0, batch.sold);
+      const packages = Math.ceil(active / batch.tickets_per_purchase);
+      return Math.min(active, packages * batch.complimentary_per_purchase);
+    })
+  );
+  const packageCourtesy = packageTicketCounts.reduce((sum, value) => sum + value, 0);
+  const courtesy = packageBatches.length > 0 ? packageCourtesy : freeCourtesy;
 
   const tokens = asRows(
     await restOrEmpty(
@@ -499,7 +506,8 @@ export async function fetchProducerEventDetail(eventId: string): Promise<Produce
       hidden_share_path: row.hidden_share_path ? text(row.hidden_share_path) : null,
     },
     batches,
-    sold: isDelivery ? issued : soldCount,
+    // Vendidos = total de ingressos emitidos (ativos), igual ao “Total de ingressos” do site.
+    sold: issued,
     courtesy,
     quantity: quantity || num(row.capacity),
     validated,

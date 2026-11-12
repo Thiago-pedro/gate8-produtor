@@ -2,7 +2,6 @@ export type TeamRole = 'owner' | 'viewer';
 export type TeamStatus = 'pending' | 'accepted' | 'revoked';
 
 export const TEAM_PERMISSIONS = [
-  { key: 'balanco', label: 'Balanço' },
   { key: 'boletos', label: 'Boletos' },
   { key: 'cupons', label: 'Cupom de desconto' },
   { key: 'estornos', label: 'Estornos' },

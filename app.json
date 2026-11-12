@@ -22,8 +22,9 @@
     "android": {
       "softwareKeyboardLayoutMode": "resize",
       "package": "club.gate8.produtor",
+      "versionCode": 8,
       "adaptiveIcon": {
-        "backgroundColor": "#001B92",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/images/adaptive-icon.png"
       },
       "permissions": [

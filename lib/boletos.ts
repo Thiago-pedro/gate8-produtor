@@ -1,18 +1,12 @@
-import { callOwnerServerFn, callServerFn } from '@/lib/server-fn';
+import { callServerFn } from '@/lib/server-fn';
 import { assertEventPermission } from '@/lib/team';
 
-/** getEventBoletoFinancials — resumo financeiro (já usado no Manager). */
+/** getEventBoletoFinancials — resumo financeiro. */
 const FN_EVENT_BOLETOS =
   'a5f3723dfe163f48d0d7bb44ccac4f1a08d2937cb7ab58fd1af1150be7fccc20';
-/** getEventBoletos — compras/parcelas para gestão e exclusão. */
-const FN_EVENT_BOLETO_PURCHASES =
-  '74ecd33e840b560aa0866cac851935c5abf4856cd3c87d65194ae5596858a44c';
 /** getEventBoletoCancellationCount */
 const FN_BOLETO_CANCELLED =
   '5be33608c3ae7afac8724376ceef87d4ab5527c007f778574044e38d8b1c49f5';
-/** deleteEventClientBoletos */
-const FN_DELETE_BOLETOS =
-  '5d1edb13a8d901765da099e976dc97ce2da4506e831ca37e9ea7babd0635f4f2';
 
 export type BoletoSale = {
   id: string;
@@ -52,34 +46,6 @@ export type EventBoletos = {
     net: number;
     generated: number;
   };
-};
-
-export type BoletoInstallment = {
-  id: string;
-  number: number;
-  status: string;
-  paidAt: string | null;
-  amountCents: number;
-};
-
-export type BoletoPurchase = {
-  id: string;
-  clientId: string;
-  buyer: string;
-  email: string;
-  accountName: string;
-  cpf: string;
-  phone: string;
-  status: string;
-  installmentCount: number;
-  installments: BoletoInstallment[];
-};
-
-export type BoletoClientGroup = {
-  clientId: string;
-  name: string;
-  email: string;
-  purchases: BoletoPurchase[];
 };
 
 function asObject(value: unknown) {
@@ -180,53 +146,6 @@ function parseBoletoMovements(value: unknown): BoletoMovement[] {
   });
 }
 
-function installmentPaid(row: BoletoInstallment) {
-  return row.status === 'paid' || Boolean(row.paidAt);
-}
-
-function mapInstallment(value: unknown): BoletoInstallment | null {
-  const row = asObject(value);
-  if (!row) return null;
-  return {
-    id: text(row.id),
-    number: num(row.number),
-    status: text(row.status).toLowerCase(),
-    paidAt: text(row.paidAt ?? row.paid_at) || null,
-    amountCents: num(row.amountCents ?? row.amount_cents),
-  };
-}
-
-function mapPurchase(value: unknown): BoletoPurchase | null {
-  const row = asObject(value);
-  if (!row) return null;
-  const id = text(row.id);
-  if (!id) return null;
-  const installments = Array.isArray(row.installments)
-    ? row.installments.map(mapInstallment).filter((item): item is BoletoInstallment => Boolean(item))
-    : [];
-  return {
-    id,
-    clientId: text(row.clientId ?? row.client_id) || id,
-    buyer: text(row.buyer).trim() || '—',
-    email: text(row.email).trim(),
-    accountName: text(row.accountName ?? row.account_name).trim(),
-    cpf: text(row.cpf).trim(),
-    phone: text(row.phone).trim(),
-    status: text(row.status).toLowerCase(),
-    installmentCount: num(row.installmentCount ?? row.installment_count) || installments.length,
-    installments,
-  };
-}
-
-export function purchaseCanDelete(purchase: BoletoPurchase) {
-  if (purchase.status === 'materialized') return false;
-  return !purchase.installments.some(installmentPaid);
-}
-
-export function clientDeletablePurchases(group: BoletoClientGroup) {
-  return group.purchases.filter(purchaseCanDelete);
-}
-
 export async function fetchBoletoCancellationCount(eventId: string): Promise<number> {
   await assertEventPermission(eventId, 'boletos');
   const raw = await callServerFn<unknown>(FN_BOLETO_CANCELLED, { eventId });
@@ -237,54 +156,5 @@ export async function fetchBoletoCancellationCount(eventId: string): Promise<num
   if (body && typeof body.count === 'number') return body.count;
   if (body && typeof body.cancelled === 'number') return body.cancelled;
   if (typeof envelope?.result === 'number') return envelope.result as number;
-  const n = num(body?.count ?? body?.cancelled ?? envelope?.count);
-  return n;
-}
-
-export async function fetchEventBoletoClients(eventId: string): Promise<BoletoClientGroup[]> {
-  await assertEventPermission(eventId, 'boletos');
-  const raw = await callServerFn<unknown>(FN_EVENT_BOLETO_PURCHASES, { eventId });
-  const envelope = asObject(raw);
-  const body = asObject(envelope?.data) ?? envelope;
-  const list = Array.isArray(raw)
-    ? raw
-    : Array.isArray(body)
-      ? body
-      : Array.isArray(body?.purchases)
-        ? body.purchases
-        : Array.isArray(body?.rows)
-          ? body.rows
-          : Array.isArray(envelope?.purchases)
-            ? envelope.purchases
-            : [];
-  const purchases = list.map(mapPurchase).filter((item): item is BoletoPurchase => Boolean(item));
-  const groups = new Map<string, BoletoClientGroup>();
-  for (const purchase of purchases) {
-    const current = groups.get(purchase.clientId) ?? {
-      clientId: purchase.clientId,
-      name: purchase.buyer,
-      email: purchase.email,
-      purchases: [],
-    };
-    if (!current.name || current.name === '—') current.name = purchase.buyer;
-    if (!current.email) current.email = purchase.email;
-    current.purchases.push(purchase);
-    groups.set(purchase.clientId, current);
-  }
-  return [...groups.values()].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
-}
-
-export async function deleteEventClientBoletos(eventId: string, purchaseIds: string[]) {
-  const ids = [...new Set(purchaseIds.map((id) => id.trim()).filter(Boolean))].slice(0, 20);
-  if (ids.length === 0) throw new Error('Selecione ao menos uma compra para excluir.');
-  const raw = await callOwnerServerFn<unknown>(eventId, FN_DELETE_BOLETOS, {
-    eventId,
-    purchaseIds: ids,
-  });
-  const envelope = asObject(raw);
-  const body = asObject(envelope?.data) ?? envelope ?? {};
-  const failures = Array.isArray(body.providerFailures)
-    ? body.providerFailures.map((item) => text(item)).filter(Boolean)
-    : [];
-  return { providerFailures: failures };
+  return num(body?.count ?? body?.cancelled ?? envelope?.count);
 }

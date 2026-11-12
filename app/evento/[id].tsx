@@ -1,13 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
-import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BalancoSection } from '@/components/BalancoSection';
 import { BoletosSection } from '@/components/BoletosSection';
 import { CortesiasSection } from '@/components/CortesiasSection';
 import { CupomSection } from '@/components/CupomSection';
@@ -38,8 +36,7 @@ import {
   type ProducerEventDetail,
 } from '@/lib/events';
 import {
-  bankNetOnSite,
-  downloadFinanceReport,
+  availableLiquid,
   fetchEventFinance,
   type EventFinance,
   type FinanceChannel,
@@ -57,7 +54,6 @@ type EventSection =
   | 'boletos'
   | 'retiradas'
   | 'estornos'
-  | 'balanco'
   | 'termos'
   | 'envio'
   | 'transferencia'
@@ -65,7 +61,6 @@ type EventSection =
 
 const EVENT_TABS: { key: EventSection; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'estornos', label: 'Estornos', icon: 'arrow-undo-outline' },
-  { key: 'balanco', label: 'Balanço', icon: 'pulse-outline' },
   { key: 'financeiro', label: 'Financeiro', icon: 'wallet-outline' },
   { key: 'boletos', label: 'Boletos', icon: 'barcode-outline' },
   { key: 'lotes', label: 'Lotes', icon: 'layers-outline' },
@@ -84,7 +79,6 @@ const VIEWER_TABS: {
   icon: keyof typeof Ionicons.glyphMap;
   permission: TeamPermission;
 }[] = [
-  { key: 'balanco', label: 'Balanço', icon: 'pulse-outline', permission: 'balanco' },
   { key: 'boletos', label: 'Boletos', icon: 'barcode-outline', permission: 'boletos' },
   { key: 'cupom', label: 'Cupom', icon: 'pricetag-outline', permission: 'cupons' },
   { key: 'estornos', label: 'Estornos', icon: 'arrow-undo-outline', permission: 'estornos' },
@@ -273,7 +267,6 @@ export default function EventoScreen() {
   const [finance, setFinance] = useState<EventFinance | null>(null);
   const [financeBusy, setFinanceBusy] = useState(false);
   const [financeError, setFinanceError] = useState<string | null>(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
   const [boletos, setBoletos] = useState<EventBoletos | null>(null);
   const [boletosError, setBoletosError] = useState<string | null>(null);
   const [newBatchOpen, setNewBatchOpen] = useState(false);
@@ -496,8 +489,9 @@ export default function EventoScreen() {
   const boletoChannel: FinanceChannel = {
     count: showBoletos && boletos ? boletos.totals.generated : 0,
     gross: boletoGross,
-    bank: 0,
-    gate8: boletoFees,
+    // Tarifa de emissão do boleto é taxa de banco (boletoReportFees no site).
+    bank: boletoFees,
+    gate8: 0,
     net: boletoNet,
     pix: 0,
     credit_card: 0,
@@ -557,31 +551,6 @@ export default function EventoScreen() {
     }
   }
 
-  async function downloadFinancePdf() {
-    if (pdfBusy) return;
-    setPdfBusy(true);
-    try {
-      const file = await downloadFinanceReport(event.id);
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Financeiro',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast('PDF salvo neste aparelho.');
-        toastTimer.current = setTimeout(() => setToast(null), 2200);
-      }
-    } catch (caught) {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-      setToast(caught instanceof Error ? caught.message : 'Não foi possível baixar o financeiro.');
-      toastTimer.current = setTimeout(() => setToast(null), 2800);
-    } finally {
-      setPdfBusy(false);
-    }
-  }
-
   const validatedPct = detail.sold > 0 ? (detail.validated / detail.sold) * 100 : 0;
   const validatedPctLabel =
     validatedPct === 0 ? '0%' : validatedPct < 10 ? `${validatedPct.toFixed(1)}%` : `${Math.round(validatedPct)}%`;
@@ -634,6 +603,8 @@ export default function EventoScreen() {
               if (section === 'financeiro' || section === 'boletos') void loadFinance(true);
             }}
             tintColor={colors.blue}
+            colors={[colors.blue]}
+            progressBackgroundColor={colors.bgElevated}
             progressViewOffset={event.banner_url ? coverH : 0}
           />
         }
@@ -1058,9 +1029,6 @@ export default function EventoScreen() {
                   <Kpi
                     label="Taxas"
                     value={formatBRL(finance.totals.serviceFee + finance.totals.bankFee + boletoFees)}
-                    hint={`Banco ${formatBRL(finance.totals.bankFee)} · Gate8 ${formatBRL(
-                      finance.totals.serviceFee + boletoFees
-                    )}`}
                   />
                   <Kpi
                     label="Líquido"
@@ -1078,7 +1046,9 @@ export default function EventoScreen() {
                   />
                   <Kpi
                     label="Líquido disponível"
-                    value={formatBRL(bankNetOnSite(finance.site.net, boletoNet, finance.withdrawnTotal))}
+                    value={formatBRL(
+                      availableLiquid(finance.totals.net + boletoNet, finance.withdrawnTotal)
+                    )}
                     tone="net"
                     icon="wallet-outline"
                   />
@@ -1086,22 +1056,6 @@ export default function EventoScreen() {
                 <Text style={styles.financeHint}>
                   Cada compra, cupom e estorno ficam detalhados no financeiro do site.
                 </Text>
-                {canWrite ? (
-                  <Pressable
-                    onPress={() => void downloadFinancePdf()}
-                    disabled={pdfBusy}
-                    style={({ pressed }) => [styles.pdfBtn, (pressed || pdfBusy) && styles.pressed]}
-                  >
-                    {pdfBusy ? (
-                      <ActivityIndicator color={colors.loginText} />
-                    ) : (
-                      <>
-                        <Ionicons name="download-outline" size={18} color={colors.loginText} />
-                        <Text style={styles.pdfBtnText}>Baixar PDF</Text>
-                      </>
-                    )}
-                  </Pressable>
-                ) : null}
               </>
             ) : (
               <Text style={styles.empty}>Nenhum dado financeiro neste evento.</Text>
@@ -1112,16 +1066,9 @@ export default function EventoScreen() {
         {section === 'boletos' ? (
           <BoletosSection
             eventId={event.id}
-            canWrite={canWrite}
             report={boletos}
             busy={financeBusy}
             error={boletosError}
-            onToast={(message) => {
-              if (toastTimer.current) clearTimeout(toastTimer.current);
-              setToast(message);
-              toastTimer.current = setTimeout(() => setToast(null), 2800);
-            }}
-            onChanged={() => void loadFinance(true)}
           />
         ) : null}
 
@@ -1141,18 +1088,6 @@ export default function EventoScreen() {
         {section === 'estornos' ? (
           <EstornosSection
             readOnly={!canWrite}
-            eventId={event.id}
-            nonce={reloadKey}
-            onToast={(message) => {
-              if (toastTimer.current) clearTimeout(toastTimer.current);
-              setToast(message);
-              toastTimer.current = setTimeout(() => setToast(null), 2800);
-            }}
-          />
-        ) : null}
-
-        {section === 'balanco' ? (
-          <BalancoSection
             eventId={event.id}
             nonce={reloadKey}
             onToast={(message) => {
@@ -1975,21 +1910,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 12,
-  },
-  pdfBtn: {
-    marginTop: 18,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: colors.blue,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  pdfBtnText: {
-    color: colors.loginText,
-    fontSize: 15,
-    fontWeight: '700',
   },
   purchaseMeta: {
     color: colors.muted,

@@ -1,8 +1,23 @@
-import * as FileSystem from 'expo-file-system/legacy';
-
 import { getAccessToken } from '@/lib/auth';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '@/lib/config';
+import {
+  availableLiquid,
+  bankNetOnSite,
+  buildFinanceSalesCount,
+  computePackageStats,
+  type FinancePackageStats,
+  type FinanceSaleRow,
+} from '@/lib/finance-calc';
 import { callServerFn } from '@/lib/server-fn';
+
+export {
+  availableLiquid,
+  bankNetOnSite,
+  buildFinanceSalesCount,
+  computePackageStats,
+  type FinancePackageStats,
+  type FinanceSaleRow,
+};
 
 const FN_FEES = '915adb06b5a9905d31d0ef78f112185f447176a61bd89297229912ee0bb03e08';
 const FN_COUPONS = 'd4a64bc7e81e84235d128c0567f46ada25f0e084a6536efd324ca09920c1315f';
@@ -55,14 +70,6 @@ export type FinanceChannel = {
   creditCount: number;
   debitCount: number;
   cashCount: number;
-};
-
-export type FinancePackageStats = {
-  packagesSold: number;
-  packageTickets: number;
-  extraTickets: number;
-  total: number;
-  clients: number;
 };
 
 export type EventFinance = {
@@ -394,58 +401,6 @@ async function fetchWithdrawalRows(eventId: string) {
   }
 }
 
-/** Mesma regra do site (Pacote 5+1 / Extra). */
-export function computePackageStats(
-  tickets: Row[],
-  batches: Row[],
-  batchIdFilter = ''
-): FinancePackageStats {
-  const byBatch = new Map<string, { all: number; stored: number }>();
-  const clients = new Set<string>();
-  for (const ticket of tickets) {
-    if (isCancelledStatus(ticket.status)) continue;
-    const batchId = text(ticket.batch_id);
-    if (batchIdFilter && batchId !== batchIdFilter) continue;
-    const bucket = byBatch.get(batchId) ?? { all: 0, stored: 0 };
-    bucket.all += 1;
-    if (!ticket.payment_method) bucket.stored += 1;
-    byBatch.set(batchId, bucket);
-    const client =
-      text(ticket.created_by) ||
-      text(ticket.holder_name).trim().toLowerCase() ||
-      text(ticket.id);
-    if (client) clients.add(client);
-  }
-
-  const out: FinancePackageStats = {
-    packagesSold: 0,
-    packageTickets: 0,
-    extraTickets: 0,
-    total: 0,
-    clients: clients.size,
-  };
-
-  for (const [batchId, counts] of byBatch) {
-    const batch = batches.find((row) => text(row.id) === batchId);
-    const perPurchase = Math.max(1, num(batch?.tickets_per_purchase) || 1);
-    const complimentary = Math.max(0, num(batch?.complimentary_per_purchase));
-    out.total += counts.all;
-    if (complimentary > 0 && perPurchase > complimentary) {
-      out.packageTickets += counts.all;
-      out.packagesSold += Math.ceil(counts.all / perPurchase);
-    } else {
-      out.extraTickets += counts.all;
-    }
-  }
-  return out;
-}
-
-export function bankNetOnSite(siteNet: number, boletoNet: number, withdrawnTotal: number) {
-  const combined = (Math.round(siteNet * 100) + Math.round(boletoNet * 100)) / 100;
-  const withdrawn = Number.isFinite(withdrawnTotal) ? withdrawnTotal : 0;
-  return Math.max(0, money(combined - money(withdrawn)));
-}
-
 async function fetchPosIds(eventId: string) {
   const id = encodeURIComponent(eventId);
   const rows = await firstRest([
@@ -547,10 +502,43 @@ function groupKey(ticket: Row, purchase: Row | null) {
   return text(ticket.purchase_id) || `solo-${text(ticket.id)}`;
 }
 
+/** Mesma server fn do acompanhamento de boletos; sem exigir menu "boletos". */
+const FN_EVENT_BOLETOS =
+  'a5f3723dfe163f48d0d7bb44ccac4f1a08d2937cb7ab58fd1af1150be7fccc20';
+
+async function fetchBoletosForFinance(eventId: string) {
+  const empty = {
+    enabled: false,
+    rows: [] as Array<{ generated: number; paidCount: number }>,
+    materializedIds: [] as string[],
+  };
+  try {
+    const raw = await callServerFn<unknown>(FN_EVENT_BOLETOS, { eventId });
+    const envelope = raw && typeof raw === 'object' ? (raw as Row) : null;
+    const body =
+      envelope?.data && typeof envelope.data === 'object'
+        ? (envelope.data as Row)
+        : envelope;
+    if (!body || !Array.isArray(body.rows)) return empty;
+    return {
+      enabled: Boolean(body.enabled),
+      rows: body.rows.map((item) => {
+        const row = item && typeof item === 'object' ? (item as Row) : {};
+        return { generated: num(row.generated), paidCount: num(row.paidCount) };
+      }),
+      materializedIds: Array.isArray(body.materializedIds)
+        ? body.materializedIds.map((id) => text(id)).filter(Boolean)
+        : [],
+    };
+  } catch {
+    return empty;
+  }
+}
+
 export async function fetchEventFinance(eventId: string): Promise<EventFinance> {
   const { assertEventPermission } = await import('@/lib/team');
   await assertEventPermission(eventId, 'financeiro');
-  const [tickets, tableRows, pos, fees, coupons, batches, withdrawals] = await Promise.all([
+  const [tickets, tableRows, pos, fees, coupons, batches, withdrawals, boletos] = await Promise.all([
     fetchTickets(eventId),
     fetchTables(eventId),
     fetchPosIds(eventId),
@@ -558,6 +546,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     fetchCoupons(eventId),
     fetchBatchPackageMeta(eventId),
     fetchWithdrawalRows(eventId),
+    fetchBoletosForFinance(eventId),
   ]);
   const packages = computePackageStats(tickets, batches);
   let withdrawnPaid = 0;
@@ -569,6 +558,7 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     else if (status !== 'rejected') withdrawnPending += amount;
   }
   const withdrawnTotal = money(withdrawnPaid + withdrawnPending);
+  const materializedIds = new Set(boletos.materializedIds.map((id) => text(id)).filter(Boolean));
 
   const tables = new Map(tableRows.map((row) => [text(row.id), row]));
   const detailed = fees?.siteFeesDetailed;
@@ -591,16 +581,14 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     const method = payMethod(ticket.payment_method);
     const courtesy = !method;
     const purchaseId = text(ticket.purchase_id) || null;
+    // POS = vínculo em pos_sale_items (igual ao site). Não inferir por cash/débito.
     const isPos =
       !courtesy &&
-      (method === 'cash' ||
-        method === 'debit' ||
-        pos.ticketIds.has(text(ticket.id)) ||
-        (!!purchaseId && pos.purchaseIds.has(purchaseId)));
-    if (!courtesy && !isPos && !purchaseId) continue;
-    // Ingressos liberados depois da quitação do boleto já entram no acompanhamento
-    // de boletos. Mantê-los aqui duplicaria bruto, taxa e líquido.
-    if (method === 'boleto') continue;
+      (pos.ticketIds.has(text(ticket.id)) || (!!purchaseId && pos.purchaseIds.has(purchaseId)));
+    const isSite = !courtesy && !isPos && !!purchaseId;
+    if (!courtesy && !isPos && !isSite) continue;
+    // Boleto e materializações: a linha financeira de boleto já representa a compra.
+    if (method === 'boleto' || (purchaseId && materializedIds.has(purchaseId))) continue;
 
     let unit = ticketPrice(ticket, tables);
     if (isPos && !(unit > 0)) {
@@ -763,7 +751,6 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
       acc.net += purchase.net;
       if (!purchase.isCourtesy && !purchase.isCancelled) {
         acc.paid += purchase.ticketCount;
-        acc.salesCount += 1;
       }
       if (purchase.isCourtesy) acc.courtesy += purchase.ticketCount;
       if (purchase.hasCoupon && !purchase.isCancelled) {
@@ -854,6 +841,27 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
     }
   }
 
+  // Cortesias / pagos: helper de parâmetros do site (pacote + extras com payment_method nulo).
+  totals.courtesy = packages.courtesyTickets;
+  totals.paid = Math.max(0, packages.total - packages.courtesyTickets);
+  // Mesma regra de buildEventFinanceSalesCount no site (boleto só se totalmente pago).
+  totals.salesCount = buildFinanceSalesCount([
+    ...purchases.map((purchase) => ({
+      isCourtesy: purchase.isCourtesy,
+      isCancelled: purchase.isCancelled,
+      isPos: purchase.isPos,
+      method: purchase.method,
+    })),
+    ...boletos.rows.map((row) => ({
+      isCourtesy: false,
+      isCancelled: false,
+      isPos: false,
+      method: 'boleto' as const,
+      boletoIssuedCount: row.generated,
+      boletoPaidCount: row.paidCount,
+    })),
+  ]);
+
   return {
     producerMode,
     producerPercent,
@@ -869,53 +877,3 @@ export async function fetchEventFinance(eventId: string): Promise<EventFinance> 
   };
 }
 
-const FINANCE_REPORT_URL = 'https://gate8.club/api/public/app/finance/report';
-
-function reportFileName(header: string | null) {
-  const raw = header ?? '';
-  const encoded = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(raw);
-  const plain = /filename="?([^";]+)"?/i.exec(raw);
-  const picked = decodeURIComponent((encoded?.[1] || plain?.[1] || 'financeiro.pdf').trim());
-  const safe = picked.replace(/[\\/:*?"<>|]+/g, '-');
-  return safe.toLowerCase().endsWith('.pdf') ? safe : `${safe}.pdf`;
-}
-
-export async function downloadFinanceReport(eventId: string) {
-  const { assertEventOwner } = await import('@/lib/team');
-  await assertEventOwner(eventId);
-  const token = await getAccessToken();
-  if (!token) throw new Error('Entre na conta para baixar o financeiro.');
-  const directory = FileSystem.cacheDirectory;
-  if (!directory) throw new Error('Não foi possível salvar o PDF neste aparelho.');
-  const temp = `${directory}financeiro-download.pdf`;
-  const result = await FileSystem.downloadAsync(
-    `${FINANCE_REPORT_URL}?eventId=${encodeURIComponent(eventId)}`,
-    temp,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'X-Gate8-Client': 'app',
-        Accept: 'application/pdf',
-      },
-    }
-  );
-  if (result.status !== 200) {
-    let detail = '';
-    try {
-      const body = await FileSystem.readAsStringAsync(result.uri);
-      const parsed = JSON.parse(body) as { message?: string; error?: string };
-      detail = parsed.message || parsed.error || '';
-    } catch {
-      detail = '';
-    }
-    if (result.status === 401) throw new Error(detail || 'Entre de novo para baixar o financeiro.');
-    if (result.status === 403) throw new Error(detail || 'Você não pode baixar o financeiro deste evento.');
-    if (result.status === 404) throw new Error(detail || 'Evento não encontrado.');
-    throw new Error(detail || 'Não foi possível baixar o financeiro.');
-  }
-  const disposition = result.headers['Content-Disposition'] || result.headers['content-disposition'] || null;
-  const filename = reportFileName(disposition);
-  const uri = `${directory}${filename}`;
-  if (uri !== temp) await FileSystem.copyAsync({ from: result.uri, to: uri });
-  return { uri, filename };
-}

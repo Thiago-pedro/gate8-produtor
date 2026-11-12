@@ -97,7 +97,7 @@ test('permissão ausente libera e false esconde o menu', () => {
   assert.equal(permissionAllowed({}, 'financeiro'), true);
   assert.equal(permissionAllowed({ financeiro: true }, 'financeiro'), true);
   assert.equal(permissionAllowed({ financeiro: false }, 'financeiro'), false);
-  assert.equal(permissionAllowed({ financeiro: false }, 'balanco'), true);
+  assert.equal(permissionAllowed({ financeiro: false }, 'historico'), true);
 });
 
 test('proprietário não aceita no lugar do convidado e convidado não revoga', () => {
