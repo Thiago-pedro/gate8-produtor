@@ -102,6 +102,11 @@ async function postTickets(payload: Row[]) {
   return { ok: response.ok, body };
 }
 
+function missingColumn(body: unknown, column: string) {
+  const blob = JSON.stringify(body ?? {}).toLowerCase();
+  return blob.includes(column.toLowerCase()) && /column|schema cache|could not find|pgrst/i.test(blob);
+}
+
 async function insertTickets(
   eventId: string,
   batchId: string,
@@ -110,7 +115,7 @@ async function insertTickets(
   email: string,
   customerId?: string
 ) {
-  const makeRows = (withOwner: boolean) =>
+  const makeRows = (withOwner: boolean, withCourtesyFlag: boolean) =>
     Array.from({ length: quantity }, () => ({
       event_id: eventId,
       batch_id: batchId,
@@ -118,17 +123,21 @@ async function insertTickets(
       holder_name: name,
       holder_email: email || null,
       payment_method: null,
+      // Cliente lê is_courtesy para selo verde "CORTESIA".
+      ...(withCourtesyFlag ? { is_courtesy: true } : {}),
       ...(withOwner && customerId ? { user_id: customerId } : {}),
     }));
 
-  let payload = makeRows(Boolean(customerId));
+  let withCourtesyFlag = true;
+  let payload = makeRows(Boolean(customerId), withCourtesyFlag);
   let posted = await postTickets(payload);
+  if (!posted.ok && withCourtesyFlag && missingColumn(posted.body, 'is_courtesy')) {
+    withCourtesyFlag = false;
+    payload = makeRows(Boolean(customerId), false);
+    posted = await postTickets(payload);
+  }
   if (!posted.ok && customerId) {
-    payload = payload.map((row) => {
-      const next = { ...row };
-      delete next.user_id;
-      return next;
-    });
+    payload = makeRows(false, withCourtesyFlag);
     posted = await postTickets(payload);
   }
   if (!posted.ok) {
@@ -284,15 +293,31 @@ export async function emitCourtesy(input: EmitCourtesyInput) {
   return { count: ids.length, linked, emailed, codes: tickets.map((item) => item.code).filter(Boolean) };
 }
 
+function isMarkedCourtesy(row: Row) {
+  if (!Object.prototype.hasOwnProperty.call(row, 'is_courtesy')) return null;
+  const value = row.is_courtesy;
+  if (value == null || value === '') return null;
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === 'string') {
+    const key = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 't'].includes(key)) return true;
+    if (['false', '0', 'no', 'f'].includes(key)) return false;
+  }
+  return null;
+}
+
 export async function fetchCourtesyTickets(eventId: string): Promise<CourtesyTicket[]> {
   const id = encodeURIComponent(eventId);
   const paths = [
+    `tickets?select=id,code,holder_name,holder_email,created_at,batch_id,status,payment_method,is_courtesy&event_id=eq.${id}&order=created_at.desc&limit=80`,
     `tickets?select=id,code,holder_name,holder_email,created_at,batch_id,status,payment_method&event_id=eq.${id}&order=created_at.desc&limit=80`,
     `tickets?select=id,code,holder_name,holder_email,created_at,batch_id,status&event_id=eq.${id}&payment_method=is.null&order=created_at.desc&limit=80`,
     `tickets?select=id,code,holder_name,holder_email,created_at,batch_id&event_id=eq.${id}&payment_method=is.null&order=created_at.desc&limit=80`,
   ];
   let rows: Row[] = [];
   let usedPaymentColumn = false;
+  let usedCourtesyFlag = false;
   for (const path of paths) {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: await headers() });
     const raw = await response.text();
@@ -300,11 +325,17 @@ export async function fetchCourtesyTickets(eventId: string): Promise<CourtesyTic
     if (!response.ok) continue;
     rows = asRows(body);
     usedPaymentColumn = path.includes('payment_method') && !path.includes('payment_method=is.null');
+    usedCourtesyFlag = path.includes('is_courtesy');
     break;
   }
   return rows
     .filter((row) => !CANCELLED.has(text(row.status).trim().toLowerCase()))
-    .filter((row) => (usedPaymentColumn ? isCourtesyMethod(row.payment_method) : true))
+    .filter((row) => {
+      const marked = usedCourtesyFlag ? isMarkedCourtesy(row) : null;
+      if (marked === true) return true;
+      if (marked === false) return false;
+      return usedPaymentColumn ? isCourtesyMethod(row.payment_method) : true;
+    })
     .map((row) => ({
       id: text(row.id),
       code: text(row.code),
